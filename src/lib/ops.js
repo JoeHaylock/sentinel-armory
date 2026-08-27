@@ -1,10 +1,29 @@
 import Kit from './kit.js';
 
+/**
+ * @typedef {object} Item
+ * @property {string} slot
+ * @property {string} id
+ * @property {string} cat
+ * @property {string} name
+ * @property {string} type
+ * @property {string|null} icon
+ * @property {string|null} photo
+ * @property {string} serial
+ * @property {Record<string, string>} extra
+ * @property {string} st
+ * @property {number} cond
+ * @property {number} svc
+ * @property {string} lastChk
+ * @property {string|null} cust
+ */
+
 const R = Kit.rng(20260827);
 
 /* ── demo operators signing kit in / out ── */
 export const OPS = ['R. Callahan', 'J. Mbeki', 'T. Aoyama', 'L. Ferreira', 'D. Novak', 'S. Whitfield'];
 
+/** @type {Record<string, string>} */
 export const ST_LBL = { rack: 'In rack', out: 'Deployed', check: 'AI check', hold: 'Hold' };
 
 /* ── categories ── */
@@ -21,6 +40,7 @@ export const CATS = [
 ];
 
 /* [cat, name, type, icon, serial, extra] */
+/** @type {[string, string, string, string, string, Record<string, string>][]} */
 const DEFS = [
   ['Rifles',   'L85A3 Service Carbine',    'Firearm · 5.56×45', 'rifle',   'L85-021447', {}],
   ['Rifles',   'L85A3 Service Carbine',    'Firearm · 5.56×45', 'rifle',   'L85-021452', {}],
@@ -42,7 +62,9 @@ const DEFS = [
 
 const CAT_PHOTO = Object.fromEntries(CATS.map(c => [c.key, c.photo]));
 
+/** @type {Item[]} */
 export const items = DEFS.map(([cat, name, type, icon, serial, extra], i) => {
+  /** @type {Item} */
   const it = {
     slot: 'S-' + String(i + 1).padStart(2, '0'), id: 'ARM-' + (101 + i),
     cat, name, type, icon, serial, extra,
