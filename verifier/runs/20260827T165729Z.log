@@ -1,0 +1,54 @@
+# verifier v4 run @ 20260827T165729Z
+## build + dist assembly (mount-flaky workaround: build to /tmp, verified copies)
+build exit=0
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 11.63s
+assembly OK
+assembly exit=0
+assets: 2 files, icons: 16 files
+## dist entry
+PASS dist/index.html
+## icons in dist
+PASS icon rifle
+PASS icon sidearm
+PASS icon plate
+PASS icon helmet
+PASS icon nvg
+PASS icon radio
+PASS icon medkit
+PASS icon optic
+PASS icon ruck
+PASS icon crate
+PASS icon shirt
+PASS icon smock
+PASS icon boots
+PASS icon photo-rifle
+PASS icon photo-clothing
+PASS icon photo-kit
+## v4 feature strings in bundle
+PASS 'ISS-501'
+PASS 'ISSUE RECORD'
+PASS 'REVIEW'
+PASS 'Flagged'
+PASS 'Tear / hole'
+PASS 'AI_FLAG'
+PASS 'WO_RAISE'
+PASS 'Return to rack'
+PASS 'Override'
+PASS 'Raise repair work order'
+FAIL 'Issue history'
+## v3 feature strings still present
+PASS 'AI_PASS'
+PASS 'DEPLOY_OUT'
+PASS 'RETRIEVE_IN'
+PASS 'AUTO_CYCLE'
+PASS 'Stock catalog'
+PASS 'sentinel-armory-v1'
+PASS 'L85A3'
+PASS 'CAM 03'
+## factory-demo leftovers (expect none)
+PASS no 'CNC'
+PASS no 'spindle'
+PASS no 'FIELD REPORT'
+PASS no 'Workshop 2'
+RESULT: FAIL

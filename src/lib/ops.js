@@ -57,6 +57,32 @@ export const items = DEFS.map(([cat, name, type, icon, serial, extra], i) => {
   return it;
 });
 
+/* ── issue registry: structured defect records from AI checks ── */
+export const DEFECTS = [
+  { type: 'Tear / hole',    loc: ['left sleeve seam', 'front panel', 'lower hem', 'shoulder yoke'],       sev: 'High' },
+  { type: 'Surface scuff',  loc: ['handguard rail', 'stock polymer', 'magazine well'],                  sev: 'Low' },
+  { type: 'Scratch',        loc: ['optic lens housing', 'receiver finish', 'helmet shell'],             sev: 'Medium' },
+  { type: 'Strap fray',     loc: ['stitch line · right strap', 'buckle webbing', 'drag handle'],        sev: 'Medium' },
+  { type: 'Serial plate',   loc: ['partially obscured', 'corrosion on etching'],                        sev: 'High' },
+  { type: 'Corrosion',      loc: ['exposed fastener', 'rail interface', 'zip puller'],                  sev: 'Medium' },
+];
+let isN = 500;
+export function newIssue(item, ai, dir, by) {
+  const d = DEFECTS[Math.floor(Math.random() * DEFECTS.length)];
+  return {
+    id: 'ISS-' + (++isN), itemId: item.id, slot: item.slot, name: item.name, icon: item.icon,
+    type: d.type, loc: d.loc[Math.floor(Math.random() * d.loc.length)], sev: d.sev,
+    score: ai.score, note: ai.note, shots: ai.shots, dir, by,
+    t: new Date().toTimeString().slice(0, 8),
+    st: 'Open',
+  };
+}
+export const issues = [];
+
+/* ── movement queue (deploy / retrieve requests) ── */
+export const STAGES = ['Requested', 'AI Check', 'Cleared', 'Logged'];
+let rqN = 1040;
+
 /* ── browser-local persistence (demo-grade, per-browser only) ── */
 const LS_KEY = 'sentinel-armory-v1';
 export function saveState() {
@@ -64,7 +90,7 @@ export function saveState() {
     localStorage.setItem(LS_KEY, JSON.stringify({
       items: items.map(i => ({ id: i.id, st: i.st, cond: i.cond, cust: i.cust, lastChk: i.lastChk })),
       vitals: { outsToday: VITALS.outsToday, insToday: VITALS.insToday, aiPass: VITALS.aiPass, aiFlag: VITALS.aiFlag },
-      rqN,
+      issues, rqN,
     }));
   } catch { /* storage unavailable — demo continues without persistence */ }
 }
@@ -78,13 +104,12 @@ export function loadState() {
       if (it && ST_LBL[snap.st]) Object.assign(it, snap);
     }
     if (s.vitals) Object.assign(VITALS, s.vitals);
+    if (Array.isArray(s.issues)) { issues.length = 0; s.issues.forEach(x => issues.push(x)); }
     if (s.rqN) rqN = s.rqN;
   } catch { /* corrupt store — start fresh */ }
 }
 
-/* ── movement queue (deploy / retrieve requests) ── */
-export const STAGES = ['Requested', 'AI Check', 'Cleared', 'Logged'];
-let rqN = 1040;
+/* ── movement queue helpers ── */
 export function newReq(item, dir, by, auto) {
   return {
     id: 'RQ-' + (++rqN), itemId: item.id, slot: item.slot, name: item.name,
@@ -129,6 +154,32 @@ export const SEED_LOG = Array.from({ length: 14 }, (_, i) => {
     act: a + ' · S-' + String(1 + Math.floor(R() * 16)).padStart(2, '0'),
     cd: hex(Math.floor(R() * 0xFFFFF)), lv,
   };
+});
+
+/* one pre-seeded issue so the flag trail is visible from first load */
+const seedIt = items[7];
+const seedIssue = {
+  id: 'ISS-501', itemId: seedIt.id, slot: seedIt.slot, name: seedIt.name, icon: seedIt.icon,
+  type: 'Tear / hole', loc: 'lower hem', sev: 'High', score: 71,
+  note: 'Tear / hole at lower hem', shots: 2, dir: 'IN', by: 'J. Mbeki',
+  t: new Date(Date.now() - 3600000).toTimeString().slice(0, 8), st: 'Open',
+};
+issues.unshift(seedIssue);
+seedIt.st = 'hold';
+/* …and the movement request that raised it, so the queue has a flagged row
+   to click from first paint */
+{
+  const rq = newReq(seedIt, 'IN', seedIssue.by, true);
+  rq.st = 'Logged'; rq.t = seedIssue.t;
+  rq.ai = { score: seedIssue.score, serial: seedIt.serial, verdict: 'FLAG', note: seedIssue.note, shots: 2 };
+  requests.unshift(rq);
+}
+
+/* …and a matching transaction-log row, clickable into the same issue record */
+SEED_LOG.push({
+  t: seedIssue.t, pid: 'PID_5001',
+  act: 'AI_FLAG · ' + seedIt.slot + ' · ' + seedIssue.score + '/100 · ' + seedIssue.id,
+  cd: hex(0x4A1F), lv: 'warn', issueId: seedIssue.id,
 });
 
 export { R };

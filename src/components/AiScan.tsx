@@ -102,6 +102,9 @@ export default function AiScan({ item, dir, onDone }: Props) {
             <div className="vrow2"><span>Serial OCR</span><b>{result.serial} · match</b></div>
             <div className="vrow2"><span>Note</span><b>{result.note}</b></div>
             <div className="vrow2"><span>Frames</span><b>{result.shots} captured</b></div>
+            {result.verdict === 'FLAG' && (
+              <div className="vrow2"><span>Record</span><b>Issue will be stored + flagged in the queue for review</b></div>
+            )}
           </div>
         )}
 
@@ -126,7 +129,7 @@ export default function AiScan({ item, dir, onDone }: Props) {
                 </button>
               )}
               <button className="btn primary" onClick={() => onDone(result)}>
-                {result.verdict === 'PASS' ? `Mark ${dir === 'OUT' ? 'deployed' : 'retrieved'} in system →` : 'Send item to HOLD →'}
+                {result.verdict === 'PASS' ? `Mark ${dir === 'OUT' ? 'deployed' : 'retrieved'} in system →` : 'Record issue · send item to HOLD →'}
               </button>
             </>
           ) : (

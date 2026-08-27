@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ST_LBL } from '../lib/ops.js'
+import { ST_LBL, issues } from '../lib/ops.js'
 
 interface Item { slot: string; id: string; cat: string; name: string; type: string; icon: string | null
                  photo: string | null; serial: string; extra: Record<string, string>
@@ -10,11 +10,12 @@ interface Props {
   cats: Cat[]
   onAction: (it: Item, dir: 'OUT' | 'IN') => void
   onClearHold: (it: Item) => void
+  onOpenIssue: (id: string) => void
 }
 
 /* Stock catalog — categories on the left, drill into one to see every
    tracked item with its photo, serial, live status and movement actions. */
-export default function Catalog({ items, cats, onAction, onClearHold }: Props) {
+export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssue }: Props) {
   const [openCat, setOpenCat] = useState<string | null>('Rifles')
   const [openItem, setOpenItem] = useState<string | null>(null)
 
@@ -98,6 +99,22 @@ export default function Catalog({ items, cats, onAction, onClearHold }: Props) {
                 {selected.st === 'hold' && <button className="done" onClick={() => onClearHold(selected)}>Clear hold → rack</button>}
                 {selected.st === 'check' && <span style={{ color: 'var(--warn)' }}>AI check in progress…</span>}
               </div>
+              {(() => {
+                const hist = (issues as any[]).filter(x => x.itemId === selected.id)
+                return hist.length ? (
+                  <div className="issuehist">
+                    <div className="ih-t">ISSUE HISTORY · {hist.length}</div>
+                    {hist.map(x => (
+                      <div key={x.id} className="ih-row" onClick={() => onOpenIssue(x.id)}>
+                        <span className="ih-id">{x.id}</span>
+                        <span className="ih-tx">{x.type} — {x.loc}</span>
+                        <span className="ih-sc">{x.score}/100</span>
+                        <span className={'ih-st st-' + x.st.replace(/\s/g, '')}>{x.st}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null
+              })()}
             </div>
           </div>
         )}

@@ -294,3 +294,45 @@ table.spec td:last-child{color:var(--ink);font-family:var(--mono)}
 .cctv-offline .t{font-size:13px;letter-spacing:.3em;color:#7a8a72;text-shadow:0 1px 2px rgba(0,0,0,.8);animation:kit-pulse 2.4s infinite}
 .cctv-offline .s{font-size:9px;letter-spacing:.1em;color:#55604f}
 .cctv-offline .s b{color:#8fa287}
+
+/* ── flagged issues ── */
+.log .lr.clickable{cursor:pointer}
+.log .lr.clickable:hover .act{text-decoration:underline;text-decoration-color:var(--accent)}
+.tk.flagged{cursor:pointer}
+.flagbox{display:flex;align-items:baseline;gap:8px;margin-top:7px;padding:6px 9px;
+  border:1px dashed var(--neg);background:color-mix(in srgb,var(--neg) 6%,transparent);font-size:10px}
+.flagbox .fl{color:var(--neg);font-weight:600;letter-spacing:.05em;flex:none}
+.flagbox .ft{color:var(--ink);flex:1}
+.flagbox .fr{color:var(--accent);font-size:9px;letter-spacing:.12em;flex:none}
+.tk.flagged:hover .fr{text-decoration:underline}
+.issuelink{color:var(--accent);cursor:pointer;font-size:9.5px}
+.issuelink:hover{text-decoration:underline}
+
+/* issue detail modal */
+.modal.issue{width:480px}
+.issue-hero{display:flex;align-items:center;gap:16px;padding:12px 14px;border:1px solid var(--line);
+  background:var(--panel);margin-bottom:10px}
+.issue-hero img{width:72px;height:72px;object-fit:contain;flex:none}
+.issue-score .n{font-size:30px;font-weight:700;font-family:var(--mono);color:var(--neg);line-height:1}
+.issue-score .n span{font-size:13px;color:var(--faint);font-weight:500}
+.issue-score .l{font-size:9px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase;margin-top:3px}
+.issue-score .sev{display:inline-block;font-size:9px;letter-spacing:.1em;margin-top:7px;padding:1.5px 8px;border:1px solid currentColor}
+.sev-high{color:var(--neg)} .sev-medium{color:var(--warn)} .sev-low{color:var(--muted)}
+.issue-spec{margin-bottom:4px}
+.modal.issue .ftr{flex-wrap:wrap}
+
+/* item issue history */
+.issuehist{margin-top:12px;border-top:1px dotted var(--line);padding-top:8px}
+.ih-t{font-size:8.5px;letter-spacing:.18em;color:var(--faint);margin-bottom:5px}
+.ih-row{display:grid;grid-template-columns:60px 1fr auto auto;gap:9px;align-items:center;
+  padding:5px 6px;font-size:10px;cursor:pointer;border-bottom:1px dotted var(--line-soft)}
+.ih-row:hover{background:var(--raised)}
+.ih-id{color:var(--neg);font-weight:600}
+.ih-tx{color:var(--ink)}
+.ih-sc{color:var(--muted);font-family:var(--mono)}
+.ih-st{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase}
+.ih-st.st-Open{color:var(--neg)} .ih-st.st-Resolved{color:var(--pos)}
+.ih-st.st-Workorderraised{color:var(--warn)} .ih-st.st-Overridden{color:var(--accent)}
+
+/* queue pipe now has a 5th column */
+.pipe{grid-template-columns:repeat(5,1fr)}

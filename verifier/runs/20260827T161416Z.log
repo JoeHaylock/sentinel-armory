@@ -1,0 +1,38 @@
+# verifier v4 run @ 20260827T161416Z (dist assembled via python retry-copy, see runs history)
+PASS dist/index.html
+PASS icon rifle
+PASS icon sidearm
+PASS icon plate
+PASS icon helmet
+PASS icon nvg
+PASS icon radio
+PASS icon medkit
+PASS icon optic
+PASS icon ruck
+PASS icon crate
+PASS icon shirt
+PASS icon smock
+PASS icon boots
+PASS icon photo-rifle
+PASS icon photo-clothing
+PASS icon photo-kit
+PASS cctv still
+PASS 'AI_PASS'
+PASS 'DEPLOY_OUT'
+PASS 'RETRIEVE_IN'
+PASS 'REQ_CREATE'
+PASS 'TURN ITEM'
+PASS 'AUTO_CYCLE'
+PASS 'Stock catalog'
+PASS 'sentinel-armory-v1'
+PASS 'ISS-'
+PASS 'REVIEW'
+PASS 'Flagged'
+PASS 'ISSUE HISTORY'
+PASS 'WO_RAISE'
+PASS 'NAMING MATRIX'
+PASS no 'WO-'
+PASS no 'CNC'
+PASS no 'spindle'
+PASS no 'FIELD REPORT'
+PASS no 'Workshop 2'

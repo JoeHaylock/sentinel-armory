@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import Kit from './lib/kit.js'
-import { CATS, OPS, R, SEED_LOG, ST_LBL, STAGES, VITALS, blocks, hex, items, loadState, newReq, requests, saveState } from './lib/ops.js'
+import { CATS, OPS, R, SEED_LOG, ST_LBL, STAGES, VITALS, blocks, hex, issues, items, loadState, newIssue, newReq, requests, saveState } from './lib/ops.js'
 import Chart from './components/Chart'
 import AiScan, { ScanResult, ScanTarget } from './components/AiScan'
 import Catalog from './components/Catalog'
+import IssueDetail from './components/IssueDetail'
 
 interface Item { slot: string; id: string; cat: string; name: string; type: string; icon: string | null
                  photo: string | null; serial: string; extra: Record<string, string>
                  st: string; cond: number; svc: number; lastChk: string; cust: string | null }
 interface Req { id: string; itemId: string; slot: string; name: string; dir: 'OUT' | 'IN'
                 by: string; st: string; auto: boolean; t: string; ai: ScanResult | null; t0?: number }
-interface Row { t: string; pid: string; act: string; cd: string; lv: string }
+interface Issue { id: string; itemId: string; slot: string; name: string; icon: string | null
+                  type: string; loc: string; sev: string; score: number; note: string
+                  shots: number; dir: 'OUT' | 'IN'; by: string; t: string; st: string }
+interface Row { t: string; pid: string; act: string; cd: string; lv: string; issueId?: string }
 
 const clock = () => new Date().toTimeString().slice(0, 8)
 const CYCLE_S = 15
@@ -28,6 +32,7 @@ export default function App() {
   const [cycleOn, setCycleOn] = useState(true)
   const [scan, setScan] = useState<{ item: Item; dir: 'OUT' | 'IN'; by: string } | null>(null)
   const [view, setView] = useState<'ops' | 'catalog'>('ops')
+  const [issueSel, setIssueSel] = useState<Issue | null>(null)
   const [, force] = useState(0)
   const redraw = () => force(n => n + 1)
 
@@ -40,9 +45,9 @@ export default function App() {
 
   useEffect(() => { Kit.themeToggle(() => {}, themeSlot.current) }, [])
 
-  const addLog = (act: string, lv: string) => setLogs(ls => [{
+  const addLog = (act: string, lv: string, issueId?: string) => setLogs(ls => [{
     t: clock(), pid: 'PID_' + (1000 + Math.floor(Math.random() * 9000)),
-    act, cd: hex(Math.floor(Math.random() * 0xFFFFF)), lv,
+    act, cd: hex(Math.floor(Math.random() * 0xFFFFF)), lv, issueId,
   }, ...ls].slice(0, 42))
 
   /* Commit a movement to the system — the AI verdict is the gate. */
@@ -50,8 +55,10 @@ export default function App() {
     it.lastChk = clock().slice(0, 5)
     if (ai.verdict === 'FLAG') {
       it.st = 'hold'; VITALS.aiFlag++
-      addLog(`AI_FLAG · ${it.slot} · ${ai.score}/100 · ${ai.note}`, 'warn')
-      Kit.toast(`⚠ ${it.id} sent to HOLD · ${ai.note}`)
+      const iss = newIssue(it, ai, dir, by) as Issue
+      issues.unshift(iss); if (issues.length > 20) issues.pop()
+      addLog(`AI_FLAG · ${it.slot} · ${ai.score}/100 · ${iss.type.toLowerCase()} @ ${iss.loc} · ${iss.id}`, 'warn', iss.id)
+      Kit.toast(`⚠ ${it.id} sent to HOLD · ${iss.id} ${iss.type}`)
     } else {
       it.st = dir === 'OUT' ? 'out' : 'rack'
       it.cust = dir === 'OUT' ? by : null
@@ -170,6 +177,31 @@ export default function App() {
     addLog(`HOLD_CLEAR · ${it.slot} → rack`, 'ok'); redraw()
   }
 
+  /* actions from the issue detail modal */
+  const issueAction = (action: 'return-rack' | 'work-order' | 'deploy-anyway', iss: Issue) => {
+    const it = items.find((i: Item) => i.id === iss.itemId)
+    if (action === 'return-rack' && it) {
+      it.st = 'rack'; it.cust = null; iss.st = 'Resolved'
+      addLog(`HOLD_CLEAR · ${it.slot} → rack · ${iss.id} resolved`, 'ok')
+      Kit.toast(`${iss.id} resolved · ${it.id} back in rack`)
+    } else if (action === 'work-order') {
+      iss.st = 'Work order raised'
+      addLog(`WO_RAISE · ${iss.id} · ${iss.type} @ ${iss.loc}`, 'warn', iss.id)
+      Kit.toast(`Repair work order raised for ${iss.id} (demo)`)
+    } else if (action === 'deploy-anyway' && it) {
+      it.st = 'out'; it.cust = 'This terminal'; iss.st = 'Overridden'
+      VITALS.outsToday++
+      addLog(`DEPLOY_OUT · ${it.slot} · supervisor override · ${iss.id}`, 'warn', iss.id)
+      Kit.toast(`${it.id} deployed despite ${iss.id} — override logged`)
+    }
+    saveState(); setIssueSel(null); redraw()
+  }
+  const openIssue = (id?: string) => {
+    if (!id) return
+    const iss = (issues as Issue[]).find(x => x.id === id)
+    if (iss) setIssueSel(iss)
+  }
+
   /* ── vitals ── */
   const track = items.filter((i: Item) => i.icon)
   const vrows = [
@@ -180,7 +212,7 @@ export default function App() {
   ]
 
   /* ── movement queue ── */
-  let list = (requests as Req[]).filter(r => !pipeSel || r.st === pipeSel)
+  let list = (requests as Req[]).filter(r => pipeSel === 'FLAGGED' ? r.ai?.verdict === 'FLAG' : !pipeSel || r.st === pipeSel)
   if (sel) list = list.filter(r => r.itemId === sel.id)
 
   const moveOpt = () => {
@@ -234,7 +266,7 @@ export default function App() {
 
       {view === 'catalog' ? (
         <div className="app catalogwrap">
-          <Catalog items={items as Item[]} cats={CATS} onAction={openScan} onClearHold={clearHold} />
+          <Catalog items={items as Item[]} cats={CATS} onAction={openScan} onClearHold={clearHold} onOpenIssue={openIssue} />
         </div>
       ) : (
       <div className="app">
@@ -284,7 +316,10 @@ export default function App() {
               <span className="tail">NEXT AUTO ▮ {cycleOn ? nextRef.current + 's' : '—'}</span></div>
             <div className="pb"><div className="log" id="log">
               {logs.map((r, i) => (
-                <div className={'lr' + (r.lv === 'warn' ? ' warn' : '')} key={r.cd + i}>
+                <div className={'lr' + (r.lv === 'warn' ? ' warn' : '') + (r.issueId ? ' clickable' : '')}
+                     key={r.cd + i}
+                     title={r.issueId ? 'Open issue record ' + r.issueId : undefined}
+                     onClick={() => openIssue(r.issueId)}>
                   <time>{r.t}</time>
                   <span className="pid">{r.pid}</span>
                   <span className="act">{r.act}</span><span className="cd">{r.cd}</span>
@@ -328,6 +363,11 @@ export default function App() {
                         {`${sel.type} · SN ${sel.serial} · Cond `}<b>{sel.cond}/100</b>
                         {` · Svc ${Kit.fmt(sel.svc)} h · Last AI check ${sel.lastChk}`}<br />
                         {sel.st === 'out' ? <>Signed to <b>{sel.cust}</b></> : sel.st === 'hold' ? <b style={{ color: 'var(--neg)' }}>Held for review</b> : 'No current custodian'}
+                        {(() => {
+                          const h = (issues as Issue[]).filter(x => x.itemId === sel.id)
+                          return h.length ? <> · <span className="issuelink" onClick={e => { e.stopPropagation(); openIssue(h[0].id) }}>
+                            {h.length} issue{h.length > 1 ? 's' : ''} on record ▸</span></> : null
+                        })()}
                       </div>
                     </div>
                     <div className="acts" style={{ marginTop: 7 }}>
@@ -346,7 +386,7 @@ export default function App() {
               <span className="tail">{`${(requests as Req[]).filter(r => r.st !== 'Logged').length} in flight`}</span></div>
             <div className="pb">
               <div className="den" style={{ marginBottom: 8 }}>
-                Each row is one RQ — slot · asset · time · requester · AI verdict.
+                Workflow: one RQ per deploy/retrieve — slot · asset · time · requester · AI verdict. Flagged rows open the issue record.
               </div>
               <div className="pipe">
                 {STAGES.map((s: string) => (
@@ -356,11 +396,24 @@ export default function App() {
                     <div className="l">{s}</div>
                   </div>
                 ))}
+                <div className={pipeSel === 'FLAGGED' ? 'on' : ''}
+                     onClick={() => setPipeSel(p => p === 'FLAGGED' ? null : 'FLAGGED')}>
+                  <div className="n">{(requests as Req[]).filter(r => r.ai?.verdict === 'FLAG').length}</div>
+                  <div className="l">Flagged</div>
+                </div>
               </div>
               <div>
                 {!list.length ? <div className="tk"><div className="m">No movement requests match this filter.</div></div>
-                  : list.map(t => (
-                    <div className={'tk' + (t.ai?.verdict === 'FLAG' ? ' over' : '')} key={t.id}>
+                  : list.map(t => {
+                    const iss = t.ai?.verdict === 'FLAG'
+                      ? (issues as Issue[]).find(x => x.itemId === t.itemId && x.t === t.t) ||
+                        (issues as Issue[]).find(x => x.itemId === t.itemId)
+                      : null
+                    return (
+                    <div className={'tk' + (t.ai?.verdict === 'FLAG' ? ' over flagged' : '')}
+                         key={t.id}
+                         title={iss ? 'Open issue record ' + iss.id : undefined}
+                         onClick={() => iss && setIssueSel(iss)}>
                       <div className="t">
                         <span className="id">{t.id}</span>
                         <span className={'dir dir-' + t.dir}>{t.dir === 'OUT' ? '▲ OUT' : '▼ IN'}</span>
@@ -369,11 +422,19 @@ export default function App() {
                       </div>
                       <div className="m">
                         {`${t.slot} · ${t.itemId} · req ${t.t} · ${t.by} · ${t.auto ? 'auto-cycle' : 'manual'}`}
-                        {t.ai ? <> · AI <b style={{ color: t.ai.verdict === 'PASS' ? 'var(--pos)' : 'var(--neg)' }}>
-                          {t.ai.verdict} {t.ai.score}/100</b> · {t.ai.shots} frames · {t.ai.note}</> : null}
+                        {t.ai && t.ai.verdict === 'PASS' ? <> · AI <b style={{ color: 'var(--pos)' }}>
+                          PASS {t.ai.score}/100</b> · {t.ai.shots} frames · {t.ai.note}</> : null}
                       </div>
+                      {iss && t.ai?.verdict === 'FLAG' && (
+                        <div className="flagbox">
+                          <span className="fl">⚠ {iss.id}</span>
+                          <span className="ft">{t.dir === 'IN' ? 'Returned' : 'Deployed'} {t.ai!.score}/100 · {iss.type} — {iss.loc}</span>
+                          <span className="fr">REVIEW ▸</span>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
               </div>
             </div>
           </section>
@@ -389,6 +450,12 @@ export default function App() {
       )}
 
       {scan && <AiScan item={scan.item as ScanTarget} dir={scan.dir} onDone={closeScan} />}
+      {issueSel && (
+        <IssueDetail issue={issueSel}
+                     item={items.find((i: Item) => i.id === issueSel.itemId)}
+                     onClose={() => setIssueSel(null)}
+                     onAction={issueAction} />
+      )}
     </>
   )
 }
