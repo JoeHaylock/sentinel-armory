@@ -1,0 +1,133 @@
+/* equipment-ops — single-shift terminal styling: all-mono type, a halftone dot
+   divider, block-character progress bars and a radar sweep; safety orange is
+   the industrial "attention" colour, spent only on alerts and active states. */
+:root{
+  --bg:#fbfbf7; --panel:#ffffff; --raised:#f2f2ec; --ink:#15150f; --muted:#6b6b60; --faint:#a5a598; --line:#e2e2d8; --line-soft:#edede4;
+  --accent:#e85d04; --accent-ink:#ffffff; --accent-soft:#fceee0;
+  --pos:#2f7d3b; --neg:#c92a2a; --warn:#e85d04;
+  --s1:#15150f; --s2:#57574c; --s3:#969689; --s4:#e85d04; --s5:#38382e; --s6:#757568;
+  --r:2px; --r-sm:2px; --r-lg:4px;
+}
+[data-theme=dark]{
+  --bg:#121210; --panel:#191916; --raised:#21211d; --ink:#ececdf; --muted:#a2a290; --faint:#5f5f52; --line:#2c2c25; --line-soft:#201f1a;
+  --accent:#ff7a1f; --accent-ink:#2b1400; --accent-soft:#331c07;
+  --pos:#6fbf6f; --neg:#e06565; --warn:#ff7a1f;
+  --s1:#ececdf; --s2:#b0b09c; --s3:#67675a; --s4:#ff7a1f; --s5:#cfcfbe; --s6:#8a8a78;
+}
+html,body{height:100%}
+body{display:flex;flex-direction:column;overflow:hidden;font-size:13px;font-family:var(--mono)}
+body,button,input,select,textarea{letter-spacing:0}
+
+/* ── header ── */
+header{flex:none;padding:10px 18px 0}
+.ascii{display:flex;gap:14px;align-items:center}
+.ascii .lg{font-family:var(--mono);font-weight:700;font-size:19px;letter-spacing:.1em;line-height:1}
+.ascii .lg em{font-style:normal;color:var(--accent)}
+.ascii .sub{font-size:9.5px;letter-spacing:.3em;color:var(--faint);margin-top:3px}
+.sysline{display:flex;gap:0;border-top:1px dotted var(--line);border-bottom:1px dotted var(--line);margin-top:9px}
+.sysline > div{flex:1;padding:5.5px 12px;font-size:10px;color:var(--muted);letter-spacing:.1em;border-right:1px dotted var(--line);white-space:nowrap}
+.sysline > div:last-child{border-right:0}
+.sysline b{color:var(--ink);font-weight:500}
+.sysline .st-ok{color:var(--pos)}
+.spacer{flex:1}
+header .btns{display:flex;gap:8px;align-items:flex-start}
+
+/* halftone dot divider */
+.halftone{flex:none;height:18px;margin:8px 18px 0;
+  background-image:radial-gradient(circle at 50% 50%,var(--ink) 1.2px,transparent 1.3px);
+  background-size:7px 7px;opacity:.16;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+
+/* ── app grid ── */
+.app{flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,.92fr) minmax(0,1.08fr);gap:1px;background:var(--line);border-top:1px solid var(--line);margin-top:9px}
+.row{display:grid;gap:1px;min-height:0}
+.row.r1{grid-template-columns:1.1fr .9fr 1.1fr}
+.row.r2{grid-template-columns:1.1fr 1.2fr .9fr}
+.cell{background:var(--bg);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.ph{display:flex;align-items:baseline;gap:9px;padding:9px 13px 6px;flex:none}
+.ph h2{font-size:10px;font-weight:600;letter-spacing:.18em;color:var(--muted)}
+.ph .tail{margin-left:auto;font-size:9px;color:var(--faint);letter-spacing:.1em}
+.pb{flex:1;min-height:0;overflow:auto;padding:0 13px 10px}
+
+/* vitals: dotted leaders + block bars */
+.vrow{padding:7px 0;border-bottom:1px dotted var(--line)}
+.vrow:last-child{border-bottom:0}
+.vrow .t{display:flex;align-items:baseline;font-size:10.5px;color:var(--muted)}
+.vrow .t .dots{flex:1;border-bottom:1px dotted var(--faint);margin:0 8px;transform:translateY(-3px)}
+.vrow .t b{font-size:12.5px;color:var(--ink);font-weight:600}
+.vrow .blocks{font-size:12px;letter-spacing:2px;margin-top:4px;color:var(--ink)}
+.vrow .blocks .off{color:var(--faint)}
+.vrow .den{font-size:9px;color:var(--faint);margin-top:2px;letter-spacing:.06em}
+.vrow.warn .t b,.vrow.warn .blocks{color:var(--accent)}
+
+/* radar */
+.radar-wrap{flex:1;position:relative;min-height:0}
+.radar-note{position:absolute;left:13px;bottom:8px;font-size:9px;color:var(--faint);letter-spacing:.12em;z-index:2}
+
+/* event log */
+.log{font-size:10.5px;line-height:1.5}
+.log .lr{display:grid;grid-template-columns:62px 74px 1fr auto;gap:9px;padding:3.5px 0;border-bottom:1px dotted var(--line-soft)}
+.log .lr:first-child{animation:login .5s var(--ease)}
+@keyframes login{from{opacity:0;transform:translateY(-4px)}to{opacity:1}}
+.log time{color:var(--faint)}
+.log .pid{color:var(--muted)}
+.log .cd{color:var(--faint)}
+.log .lr.warn .act{color:var(--accent);font-weight:600}
+.log .lr.warn .cd{color:var(--accent)}
+
+/* device density grid */
+.devgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;padding:2px 0}
+.dev{aspect-ratio:1.25;border:1px solid var(--line);cursor:pointer;position:relative;transition:all var(--fast);background:var(--panel)}
+.dev:hover{border-color:var(--ink)}
+.dev i{position:absolute;inset:0;margin:auto;width:5px;height:5px;border-radius:50%}
+.dev.ok i{background:var(--pos)}
+.dev.warn i{background:var(--warn)}
+.dev.crit i{background:var(--neg);animation:kit-pulse 1.2s infinite}
+.dev.off{background:var(--raised)}
+.dev.off i{background:var(--faint)}
+.dev.sel{outline:2px solid var(--accent);outline-offset:-1px}
+.dev .n{position:absolute;left:4px;bottom:3px;font-size:7.5px;color:var(--faint);letter-spacing:.05em}
+.devstat{margin-top:9px;padding:8px 10px;border:1px dashed var(--line);font-size:10px;color:var(--muted);line-height:1.7}
+.devstat b{color:var(--ink)}
+.devstat .clr{float:right;color:var(--accent);cursor:pointer}
+.devstat .clr:hover{text-decoration:underline}
+
+/* tickets */
+.pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-bottom:9px;flex:none}
+.pipe > div{background:var(--panel);padding:7px 9px;cursor:pointer}
+.pipe .n{font-size:19px;font-weight:600}
+.pipe .l{font-size:9px;color:var(--faint);letter-spacing:.12em;margin-top:1px}
+.pipe > div.on{background:var(--accent-soft);outline:1px solid var(--accent)}
+.pipe > div.on .n{color:var(--accent)}
+.tk{border:1px solid var(--line);background:var(--panel);padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:border-color var(--fast)}
+.tk:hover{border-color:var(--ink)}
+.tk.over{border-left:3px solid var(--accent)}
+.tk .t{display:flex;align-items:baseline;gap:8px}
+.tk .id{font-size:10px;color:var(--faint)}
+.tk .ti{font-size:11.5px;font-weight:600;flex:1}
+.tk .st{font-size:9px;padding:1px 7px;border:1px solid currentColor}
+.st-Open{color:var(--accent)} .st-Working{color:var(--warn)} .st-Complete{color:var(--pos)} .st-Verified{color:var(--faint)}
+.tk .m{font-size:9.5px;color:var(--muted);margin-top:4px;line-height:1.6}
+.tk .acts{display:flex;gap:6px;margin-top:7px}
+.tk .acts button{font-family:var(--mono);font-size:9px;padding:2.5px 9px;border:1px solid var(--line);background:none;cursor:pointer;color:var(--muted)}
+.tk .acts button:hover{border-color:var(--accent);color:var(--accent)}
+.tk .acts button.done:hover{border-color:var(--pos);color:var(--pos)}
+
+/* modal */
+.veil{position:fixed;inset:0;background:color-mix(in srgb,var(--ink) 30%,transparent);opacity:0;pointer-events:none;transition:opacity var(--slow);z-index:60}
+.veil.on{opacity:1;pointer-events:auto}
+.modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%);width:430px;max-width:94vw;background:var(--bg);border:1px solid var(--ink);z-index:61;opacity:0;pointer-events:none;transition:all var(--slow);padding:18px 20px}
+.modal.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%)}
+.modal h3{font-size:13px;letter-spacing:.14em;margin-bottom:13px}
+.modal h3::before{content:"■ ";color:var(--accent)}
+.fm{display:grid;grid-template-columns:74px 1fr;gap:10px 12px;align-items:center;font-size:11.5px}
+.fm label{color:var(--muted);font-size:10px;letter-spacing:.1em}
+.fm select,.fm input,.fm textarea{font-family:var(--mono);font-size:11.5px}
+.fm textarea{min-height:56px;resize:vertical;padding:7px 9px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.photo-line{display:flex;align-items:center;gap:9px;font-size:10px;color:var(--muted)}
+.photo-line .thumb{width:34px;height:34px;border:1px dashed var(--faint);display:none;place-items:center;font-size:8px;color:var(--faint)}
+.photo-line .thumb.on{display:grid}
+.offnote{display:flex;gap:7px;align-items:center;font-size:9.5px;color:var(--faint);grid-column:2}
+.offnote input{accent-color:var(--accent)}
+.modal .ftr{display:flex;gap:8px;margin-top:15px;justify-content:flex-end}
