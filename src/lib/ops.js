@@ -1,46 +1,134 @@
 import Kit from './kit.js';
 
-const R = Kit.rng(20260816);
+const R = Kit.rng(20260827);
 
-export const ST_LBL = { ok: 'Running', warn: 'Watch', crit: 'Alert', off: 'Offline' };
+/* ── demo operators signing kit in / out ── */
+export const OPS = ['R. Callahan', 'J. Mbeki', 'T. Aoyama', 'L. Ferreira', 'D. Novak', 'S. Whitfield'];
 
-/* ── device matrix ── */
-const LINES=['CNC','Molding','Assembly','Packaging'];
-const devs=Array.from({length:32},(_,i)=>{
-  const r=R();
-  const st=r<.78?'ok':r<.88?'warn':r<.95?'crit':'off';
-  return {id:'M-'+(101+i),line:LINES[Math.floor(i/8)],st,run:Math.round(400+R()*7200)};
+export const ST_LBL = { rack: 'In rack', out: 'Deployed', check: 'AI check', hold: 'Hold' };
+
+/* ── categories ── */
+export const CATS = [
+  { key: 'Rifles',   blurb: 'Individual weapons · rack A', photo: '/icons/photo-rifle.png' },
+  { key: 'Sidearms', blurb: 'Secondary weapons · rack A', photo: null },
+  { key: 'Clothing', blurb: 'Uniform & field wear · rack D', photo: '/icons/photo-clothing.png' },
+  { key: 'Armour',   blurb: 'Body armour & headgear · rack B', photo: '/icons/photo-kit.png' },
+  { key: 'Optics',   blurb: 'Sights & night vision · cage C', photo: null },
+  { key: 'Comms',    blurb: 'Radios & signals · cage C', photo: null },
+  { key: 'Medical',  blurb: 'First-line med kit · rack D', photo: null },
+  { key: 'Load',     blurb: 'Carriage & bergens · rack D', photo: null },
+  { key: 'Stores',   blurb: 'Transit & consumables · cage E', photo: null },
+];
+
+/* [cat, name, type, icon, serial, extra] */
+const DEFS = [
+  ['Rifles',   'L85A3 Service Carbine',    'Firearm · 5.56×45', 'rifle',   'L85-021447', {}],
+  ['Rifles',   'L85A3 Service Carbine',    'Firearm · 5.56×45', 'rifle',   'L85-021452', {}],
+  ['Rifles',   'L85A3 Service Carbine',    'Firearm · 5.56×45', 'rifle',   'L85-021468', {}],
+  ['Sidearms', 'L131A1 Duty Sidearm',      'Firearm · 9mm',     'sidearm', 'L131-00913', {}],
+  ['Sidearms', 'L131A1 Duty Sidearm',      'Firearm · 9mm',     'sidearm', 'L131-00927', {}],
+  ['Clothing', 'MTP Combat Shirt',         'Uniform · UBACS',   'shirt',   'CLO-5510',   { size: 'M / 180/100' }],
+  ['Clothing', 'Cold-Weather Smock',       'Uniform · MVP',     'smock',   'CLO-5544',   { size: 'L / 190/110' }],
+  ['Clothing', 'Combat Boots (pair)',      'Footwear',          'boots',   'CLO-5602',   { size: 'UK 9' }],
+  ['Armour',   'Sentinel Plate Carrier',   'Armour · IIIA',     'plate',   'SPC-33018',  {}],
+  ['Armour',   'BH-2 Ballistic Helmet',    'Headgear',          'helmet',  'BH2-77102',  {}],
+  ['Optics',   'NVG-31 Night Vision',      'Optics · Gen3',     'nvg',     'NVG-55610',  {}],
+  ['Optics',   'T-6 Optic 1–6×',           'Optics',            'optic',   'T6-44789',   {}],
+  ['Comms',    'RF-40 Field Radio',        'Comms · UHF',       'radio',   'RF40-2217',  {}],
+  ['Medical',  'IFAK Med Pouch',           'Medical',           'medkit',  'IFK-09043',  {}],
+  ['Load',     'PTR-35 Patrol Ruck',       'Load carriage',     'ruck',    'PTR-61120',  {}],
+  ['Stores',   'Ammo Transit Crate',       'Stores',            'crate',   'ATC-00771',  {}],
+];
+
+const CAT_PHOTO = Object.fromEntries(CATS.map(c => [c.key, c.photo]));
+
+export const items = DEFS.map(([cat, name, type, icon, serial, extra], i) => {
+  const it = {
+    slot: 'S-' + String(i + 1).padStart(2, '0'), id: 'ARM-' + (101 + i),
+    cat, name, type, icon, serial, extra,
+    photo: CAT_PHOTO[cat],
+    st: R() < .3 ? 'out' : 'rack',
+    cond: Math.round(88 + R() * 11),
+    svc: Math.round(40 + R() * 900),
+    lastChk: `0${Math.floor(6 + R() * 3)}:${String(Math.floor(R() * 60)).padStart(2, '0')}`,
+    cust: null,
+  };
+  if (it.st === 'out') it.cust = OPS[Math.floor(R() * OPS.length)];
+  return it;
 });
 
-/* ── work orders ── */
-const STAGES=['Open','Working','Complete','Verified'];
-const FAULTS=['Abnormal spindle noise; possible bearing wear','Hydraulic oil temperature high at 62°C','Conveyor tracking off by 3cm','Air pressure fluctuating ±0.4MPa','Tool life remaining: 8%','Coolant concentration low','Safety-door sensor intermittently failing','Vibration at 4.2mm/s exceeds limit'];
-let tickets=Array.from({length:9},(_,i)=>{
-  const dev=devs[Math.floor(R()*32)];
-  const st=STAGES[Math.floor(Math.pow(R(),1.4)*4)];
-  const h=Math.round(R()*30+1);
-  return {id:'WO-'+(2610+i),dev:dev.id,line:dev.line,ti:FAULTS[Math.floor(R()*FAULTS.length)],
-    st,h,over:st!=='Verified'&&h>24,by:['A. Reyes','M. Okafor','N. Bennett'][Math.floor(R()*3)],photo:R()<.4};
-});
-
-/* ── vitals ── */
-const VITALS={done:47,plan:56,abn:3,miss:2,wo:()=>tickets.filter(t=>t.st!=='Verified').length};
-function blocks(pc,n=14){
-  const on=Math.round(pc/100*n);
-  return `<span>${'█'.repeat(on)}</span><span class="off">${'█'.repeat(n-on)}</span>`;
+/* ── browser-local persistence (demo-grade, per-browser only) ── */
+const LS_KEY = 'sentinel-armory-v1';
+export function saveState() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      items: items.map(i => ({ id: i.id, st: i.st, cond: i.cond, cust: i.cust, lastChk: i.lastChk })),
+      vitals: { outsToday: VITALS.outsToday, insToday: VITALS.insToday, aiPass: VITALS.aiPass, aiFlag: VITALS.aiFlag },
+      rqN,
+    }));
+  } catch { /* storage unavailable — demo continues without persistence */ }
+}
+export function loadState() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    for (const snap of s.items || []) {
+      const it = items.find(x => x.id === snap.id);
+      if (it && ST_LBL[snap.st]) Object.assign(it, snap);
+    }
+    if (s.vitals) Object.assign(VITALS, s.vitals);
+    if (s.rqN) rqN = s.rqN;
+  } catch { /* corrupt store — start fresh */ }
 }
 
-/* ── event log ── */
-const ACTS=[['SCAN_OK','ok'],['CHECK_PASS','ok'],['PARAM_SYNC','ok'],['TEMP_WARN','warn'],['VIB_WARN','warn'],['PHOTO_UPLD','ok'],['WO_CREATE','warn'],['AUTH_OK','ok']];
-function hex(n){return '0x'+n.toString(16).toUpperCase().padStart(6,'0')}
-/* The opening 14 log rows are generated here in the module: they must draw
-   from the same seeded sequence in order. Generating them inside the component
-   would interleave with the device / ticket draws and change the matrix. */
-export const SEED_LOG = Array.from({length:14},(_,i)=>{
-  const [a,lv]=ACTS[Math.floor(R()*ACTS.length)];
-  return {t:new Date(Date.now()-(14-i)*47000).toTimeString().slice(0,8),
-          pid:'PID_'+(1000+Math.floor(R()*9000)),
-          act:a+' · M-'+(101+Math.floor(R()*32)), cd:hex(Math.floor(R()*0xFFFFF)), lv};
+/* ── movement queue (deploy / retrieve requests) ── */
+export const STAGES = ['Requested', 'AI Check', 'Cleared', 'Logged'];
+let rqN = 1040;
+export function newReq(item, dir, by, auto) {
+  return {
+    id: 'RQ-' + (++rqN), itemId: item.id, slot: item.slot, name: item.name,
+    dir, by, st: 'Requested', auto: !!auto,
+    t: new Date().toTimeString().slice(0, 8),
+    ai: null,
+  };
+}
+export const requests = [];
+/* seed three past requests already logged */
+for (let i = 0; i < 3; i++) {
+  const it = items[i * 4];
+  const rq = newReq(it, i % 2 ? 'OUT' : 'IN', OPS[Math.floor(R() * OPS.length)], true);
+  rq.st = 'Logged';
+  rq.ai = { score: Math.round(90 + R() * 9), serial: it.serial, verdict: 'PASS', note: 'Condition nominal', shots: 2 };
+  requests.unshift(rq);
+}
+
+/* ── vitals counters (mutated live by the app) ── */
+export const VITALS = {
+  outsToday: 14, insToday: 11, aiPass: 23, aiFlag: 2,
+  passRate: () => VITALS.aiPass / (VITALS.aiPass + VITALS.aiFlag) * 100,
+  openReqs: () => requests.filter(r => r.st !== 'Logged').length,
+  deployed: () => items.filter(i => i.st === 'out').length,
+  inRack: () => items.filter(i => i.st === 'rack').length,
+};
+
+export function blocks(pc, n = 14) {
+  const on = Math.round(Math.min(100, pc) / 100 * n);
+  return `<span>${'█'.repeat(on)}</span><span class="off">${'█'.repeat(n - on)}</span>`;
+}
+export function hex(n) { return '0x' + n.toString(16).toUpperCase().padStart(6, '0'); }
+
+/* ── opening transaction-log rows (seeded, must draw from R in order) ── */
+const ACTS = [['RETRIEVE_IN', 'ok'], ['AI_PASS', 'ok'], ['DEPLOY_OUT', 'ok'], ['SLOT_SYNC', 'ok'],
+  ['AI_FLAG', 'warn'], ['REQ_CREATE', 'ok'], ['COND_WARN', 'warn'], ['AUTH_OK', 'ok']];
+export const SEED_LOG = Array.from({ length: 14 }, (_, i) => {
+  const [a, lv] = ACTS[Math.floor(R() * ACTS.length)];
+  return {
+    t: new Date(Date.now() - (14 - i) * 47000).toTimeString().slice(0, 8),
+    pid: 'PID_' + (1000 + Math.floor(R() * 9000)),
+    act: a + ' · S-' + String(1 + Math.floor(R() * 16)).padStart(2, '0'),
+    cd: hex(Math.floor(R() * 0xFFFFF)), lv,
+  };
 });
 
-export { R, LINES, devs, STAGES, FAULTS, tickets, VITALS, blocks, ACTS, hex };
+export { R };
