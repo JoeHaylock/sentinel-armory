@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import Kit from './lib/kit.js'
-import { radar } from './lib/fx.js'
 import { CATS, OPS, R, SEED_LOG, ST_LBL, STAGES, VITALS, blocks, hex, items, loadState, newReq, requests, saveState } from './lib/ops.js'
 import Chart from './components/Chart'
 import AiScan, { ScanResult, ScanTarget } from './components/AiScan'
@@ -32,15 +31,13 @@ export default function App() {
   const [, force] = useState(0)
   const redraw = () => force(n => n + 1)
 
-  const radarHost = useRef<HTMLDivElement>(null)
   const themeSlot = useRef<HTMLSpanElement>(null)
-  const cycIdx = useRef(0)           // round-robin pointer over the item list
+  const cycIdx = useRef(0)
   const nextRef = useRef(CYCLE_S)    // seconds until the next auto request
   const cycleRef = useRef(true)
   const scanRef = useRef(scan)
   scanRef.current = scan
 
-  useEffect(() => { radar(radarHost.current, { period: 4.2, blips: 10, rings: 4 }) }, [])
   useEffect(() => { Kit.themeToggle(() => {}, themeSlot.current) }, [])
 
   const addLog = (act: string, lv: string) => setLogs(ls => [{
@@ -240,16 +237,33 @@ export default function App() {
                   <div className="den">{r.den}</div>
                 </div>
               ))}
+              <div className="legend">
+                <div className="lg-t">NAMING MATRIX</div>
+                <div><b>S-xx</b> rack slot — a physical position in the cage</div>
+                <div><b>ARM-1xx</b> asset record — one tracked item &amp; its serial</div>
+                <div><b>RQ-xxxx</b> movement request — one deploy / retrieve</div>
+              </div>
               <div className="den" style={{ marginTop: 8 }}>
-                Demo build — all items, operators and AI verdicts are simulated; nothing is persisted.
+                Demo build — all items, operators and AI verdicts are simulated; state persists in this browser only.
               </div>
             </div>
           </section>
 
           <section className="cell">
-            <div className="ph"><h2>CAGE SCAN</h2><span className="tail">RFID SWEEP 4.2S</span></div>
-            <div className="radar-wrap" id="radar" ref={radarHost}>
-              <span className="radar-note">BLIP = RACK TAG · RADIUS = CAGE RING</span>
+            <div className="ph"><h2>CAGE CCTV · CAM 03</h2><span className="tail"><span className="rec-inline">● REC</span> VAULT B</span></div>
+            <div className="cctv-wrap">
+              <video src="/cage-cctv.mp4" autoPlay muted loop playsInline
+                     onError={e => { (e.target as HTMLVideoElement).style.display = 'none' }} />
+              <div className="cctv-offline">
+                <div className="t">CAMERA OFFLINE</div>
+                <div className="s">feed placeholder · drop <b>cage-cctv.mp4</b> into public/ to go live</div>
+              </div>
+              <div className="cctv-osd">
+                <span>CAM 03 · VAULT B · CAGE 3</span>
+                <span>{now}</span>
+              </div>
+              <div className="cctv-scan" />
+              <span className="radar-note">DEMO LOOP · STANDS IN FOR THE LIVE AI FEED</span>
             </div>
           </section>
 
@@ -270,7 +284,7 @@ export default function App() {
 
         <div className="row r2">
           <section className="cell">
-            <div className="ph"><h2>RACK MATRIX</h2><span className="tail">16 SLOTS · CLICK TO SELECT</span></div>
+            <div className="ph"><h2>RACK MATRIX · LIVE CAGE MAP</h2><span className="tail">16 SLOTS · CLICK TO SELECT</span></div>
             <div className="pb">
               <div className="rackgrid">
                 {items.map((d: Item) => (
@@ -281,6 +295,13 @@ export default function App() {
                     <i /><span className="n">{d.slot}</span>
                   </div>
                 ))}
+              </div>
+              <div className="racklegend">
+                <span><i className="sw rack" />In rack</span>
+                <span><i className="sw out" />Deployed</span>
+                <span><i className="sw check" />AI check</span>
+                <span><i className="sw hold" />Hold</span>
+                <span><i className="sw empty" />Empty</span>
               </div>
               <div className="devstat">
                 {!sel ? 'No slot selected — click a rack cell for the item record and movement actions.'
@@ -312,6 +333,9 @@ export default function App() {
             <div className="ph"><h2>MOVEMENT QUEUE</h2>
               <span className="tail">{`${(requests as Req[]).filter(r => r.st !== 'Logged').length} in flight`}</span></div>
             <div className="pb">
+              <div className="den" style={{ marginBottom: 8 }}>
+                Each row is one RQ — slot · asset · time · requester · AI verdict.
+              </div>
               <div className="pipe">
                 {STAGES.map((s: string) => (
                   <div key={s} className={pipeSel === s ? 'on' : ''}

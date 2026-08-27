@@ -262,3 +262,33 @@ table.spec td:first-child{color:var(--faint);font-size:9.5px;letter-spacing:.1em
 table.spec td:last-child{color:var(--ink);font-family:var(--mono)}
 .catinfo .acts button{font-family:var(--mono);font-size:9.5px;padding:4px 11px;border:1px solid var(--line);background:none;cursor:pointer;color:var(--muted)}
 .catinfo .acts button:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── cage CCTV panel ── */
+.cctv-wrap{flex:1;position:relative;min-height:0;background:#0c0f0c;overflow:hidden}
+.cctv-wrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  filter:saturate(.55) contrast(1.06) brightness(.96)}
+.cctv-osd{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;
+  padding:8px 12px;font-size:9.5px;letter-spacing:.14em;color:#d8e8d0;z-index:3;
+  text-shadow:0 1px 2px rgba(0,0,0,.8);background:linear-gradient(180deg,rgba(0,0,0,.45),transparent)}
+.rec-inline{color:#ff5b4d;animation:kit-pulse 1.4s infinite;margin-right:4px}
+.cctv-scan{position:absolute;inset:0;z-index:2;pointer-events:none;opacity:.35;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px)}
+.cctv-wrap .radar-note{color:#9fb295;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+/* ── naming / status legends ── */
+.legend{margin-top:10px;border:1px dashed var(--line);padding:8px 10px;font-size:9.5px;
+  color:var(--muted);line-height:1.9;letter-spacing:.04em}
+.legend .lg-t{font-size:8.5px;letter-spacing:.18em;color:var(--faint);margin-bottom:2px}
+.legend b{color:var(--ink);font-weight:600;margin-right:6px}
+.racklegend{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:9px;color:var(--muted);letter-spacing:.06em}
+.racklegend span{display:inline-flex;align-items:center;gap:5px}
+.racklegend .sw{width:7px;height:7px;border-radius:50%;display:inline-block}
+.racklegend .sw.rack{background:var(--pos)} .racklegend .sw.out{background:var(--faint)}
+.racklegend .sw.check{background:var(--warn)} .racklegend .sw.hold{background:var(--neg)}
+.racklegend .sw.empty{background:transparent;border:1px dashed var(--faint)}
+
+/* CCTV offline placeholder (video file absent) */
+.cctv-offline{position:absolute;inset:0;display:grid;place-content:center;gap:6px;text-align:center;z-index:1}
+.cctv-offline .t{font-size:13px;letter-spacing:.3em;color:#7a8a72;text-shadow:0 1px 2px rgba(0,0,0,.8);animation:kit-pulse 2.4s infinite}
+.cctv-offline .s{font-size:9px;letter-spacing:.1em;color:#55604f}
+.cctv-offline .s b{color:#8fa287}
