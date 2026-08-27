@@ -1,0 +1,43 @@
+# verifier v3 run @ 20260827T154045Z
+## npm run build
+build exit=1
+    at async write (node:internal/fs/promises:740:8)
+    at async writeFileHandle (node:internal/fs/promises:497:7)
+    at async Queue.work (file:///mnt/agents/output/app/node_modules/rollup/dist/es/shared/node-entry.js:22897:32)
+## dist entry
+PASS dist/index.html
+## icons in dist
+PASS icon rifle
+PASS icon sidearm
+PASS icon plate
+PASS icon helmet
+PASS icon nvg
+PASS icon radio
+PASS icon medkit
+PASS icon optic
+PASS icon ruck
+PASS icon crate
+PASS icon shirt
+PASS icon smock
+PASS icon boots
+PASS icon photo-rifle
+PASS icon photo-clothing
+PASS icon photo-kit
+## feature strings present in bundle
+FAIL 'AI_PASS'
+FAIL 'DEPLOY_OUT'
+FAIL 'RETRIEVE_IN'
+FAIL 'REQ_CREATE'
+FAIL 'TURN ITEM'
+FAIL 'AUTO_CYCLE'
+FAIL 'Stock catalog'
+FAIL 'sentinel-armory-v1'
+FAIL 'L85A3'
+FAIL 'Clothing'
+## factory-demo leftovers (expect none)
+PASS no 'WO-'
+PASS no 'CNC'
+PASS no 'spindle'
+PASS no 'FIELD REPORT'
+PASS no 'Workshop 2'
+RESULT: FAIL

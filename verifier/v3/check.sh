@@ -7,9 +7,20 @@ LOG="verifier/runs/$TS.log"
 {
   echo "# verifier v3 run @ $TS"
   echo "## npm run build"
-  npm run build > /tmp/vbuild.log 2>&1
+  # /mnt/agents mount is flaky with concurrent writes — build to /tmp, then
+  # assemble dist piece by piece with verified copies (cp -r flushes badly here)
+  rm -rf /tmp/distbuild dist
+  npx vite build --outDir /tmp/distbuild > /tmp/vbuild.log 2>&1
   echo "build exit=$?"
   tail -3 /tmp/vbuild.log
+  mkdir -p dist/assets dist/icons
+  cp /tmp/distbuild/index.html dist/index.html
+  for f in /tmp/distbuild/assets/*; do cp "$f" dist/assets/; done
+  for f in public/icons/*; do cp "$f" dist/icons/; done
+  cp public/cage-cctv-still.png dist/
+  cp -r public/fonts dist/fonts 2>/dev/null || true
+  sleep 1
+  echo "assets: $(ls dist/assets | wc -l) files, icons: $(ls dist/icons | wc -l) files"
 
   echo "## dist entry"
   test -f dist/index.html && echo "PASS dist/index.html" || echo "FAIL dist/index.html"

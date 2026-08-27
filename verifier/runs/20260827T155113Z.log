@@ -1,0 +1,43 @@
+# verifier v3 run @ 20260827T155113Z
+## npm run build
+build exit=0
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 15.26s
+## dist entry
+PASS dist/index.html
+## icons in dist
+FAIL icon rifle
+FAIL icon sidearm
+FAIL icon plate
+FAIL icon helmet
+FAIL icon nvg
+FAIL icon radio
+FAIL icon medkit
+FAIL icon optic
+FAIL icon ruck
+FAIL icon crate
+FAIL icon shirt
+FAIL icon smock
+FAIL icon boots
+FAIL icon photo-rifle
+FAIL icon photo-clothing
+FAIL icon photo-kit
+## feature strings present in bundle
+FAIL 'AI_PASS'
+FAIL 'DEPLOY_OUT'
+FAIL 'RETRIEVE_IN'
+FAIL 'REQ_CREATE'
+FAIL 'TURN ITEM'
+FAIL 'AUTO_CYCLE'
+FAIL 'Stock catalog'
+FAIL 'sentinel-armory-v1'
+FAIL 'L85A3'
+FAIL 'Clothing'
+## factory-demo leftovers (expect none)
+PASS no 'WO-'
+PASS no 'CNC'
+PASS no 'spindle'
+PASS no 'FIELD REPORT'
+PASS no 'Workshop 2'
+RESULT: FAIL

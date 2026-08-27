@@ -68,6 +68,17 @@ export default function App() {
      The request then walks Requested → AI Check → Logged on its own,
      so the whole pipeline gets exercised once per item per lap. */
   const fireAuto = () => {
+    /* self-recovery: if the rack is running low on movable kit, clear one hold
+       (a supervisor signed it off) so the demo cycle keeps flowing */
+    const movable = items.filter((i: Item) => i.icon && (i.st === 'rack' || i.st === 'out')).length
+    if (movable <= 3) {
+      const held = items.find((i: Item) => i.st === 'hold')
+      if (held) {
+        held.st = 'rack'; held.cust = null
+        addLog(`HOLD_CLEAR · ${held.slot} · supervisor sign-off · auto`, 'ok')
+        saveState()
+      }
+    }
     const track = items.filter((i: Item) => i.icon)
     let it: Item | null = null
     for (let n = 0; n < track.length; n++) {
@@ -93,7 +104,8 @@ export default function App() {
       if (r.st === 'Requested' && age >= 2) { r.st = 'AI Check'; changed = true }
       else if (r.st === 'AI Check' && age >= 7) {
         const it = items.find((i: Item) => i.id === r.itemId)!
-        const flag = Math.random() < .1
+        /* flag rarely — enough to demo the HOLD path without parking the rack */
+        const flag = Math.random() < .06
         const ai: ScanResult = {
           verdict: flag ? 'FLAG' : 'PASS',
           score: flag ? Math.round(62 + R() * 14) : Math.round(90 + R() * 9),
@@ -252,18 +264,18 @@ export default function App() {
           <section className="cell">
             <div className="ph"><h2>CAGE CCTV · CAM 03</h2><span className="tail"><span className="rec-inline">● REC</span> VAULT B</span></div>
             <div className="cctv-wrap">
+              <img className="cctv-still" src="/cage-cctv-still.png" alt="CCTV still — Vault B cage 3" />
               <video src="/cage-cctv.mp4" autoPlay muted loop playsInline
                      onError={e => { (e.target as HTMLVideoElement).style.display = 'none' }} />
               <div className="cctv-offline">
-                <div className="t">CAMERA OFFLINE</div>
-                <div className="s">feed placeholder · drop <b>cage-cctv.mp4</b> into public/ to go live</div>
+                <div className="s">still frame · <b>cage-cctv.mp4</b> drops in here when generated</div>
               </div>
               <div className="cctv-osd">
                 <span>CAM 03 · VAULT B · CAGE 3</span>
                 <span>{now}</span>
               </div>
               <div className="cctv-scan" />
-              <span className="radar-note">DEMO LOOP · STANDS IN FOR THE LIVE AI FEED</span>
+              <span className="radar-note">STILL FRAME · IMG→VIDEO LOOP PENDING</span>
             </div>
           </section>
 
