@@ -30,3 +30,11 @@ npm run preview
 ## Stack
 
 React 19, TypeScript, Vite, and Apache ECharts.
+
+## Lab branch (`lab/qm-ops`)
+
+Quartermaster desk: Due / Out board, class-only condition (Good / Flagged / OOA), staff-gated AI proposals, request/return photos on the item file.
+
+Live review (does not replace production): https://joehaylock.github.io/sentinel-armory/lab/
+
+Vite `base` on this branch is `/sentinel-armory/lab/`.

@@ -13,11 +13,6 @@
  *      the single most important series. Everything else is ink at some opacity.
  */
 
-@font-face{font-family:"Geist Variable";font-style:normal;font-weight:100 900;font-display:swap;
-  src:url("/fonts/geist-latin-wght.woff2") format("woff2");}
-@font-face{font-family:"Geist Mono Variable";font-style:normal;font-weight:100 900;font-display:swap;
-  src:url("/fonts/geist-mono-latin-wght.woff2") format("woff2");}
-
 :root {
   /* Overridden per template — these are the neutral defaults. */
   --bg: #fbfbfa;
@@ -37,12 +32,12 @@
   --warn: #b4690e;
   --info: #2563eb;
 
-  --r: 6px;
-  --r-sm: 4px;
-  --r-lg: 10px;
+  --r: 2px;
+  --r-sm: 2px;
+  --r-lg: 4px;
 
-  --sans: "Geist Variable", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --sans: "Source Sans 3", "Source Sans Pro", ui-sans-serif, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --ease: cubic-bezier(.22, .7, .2, 1);
   --fast: .16s var(--ease);

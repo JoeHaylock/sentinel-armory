@@ -32,9 +32,7 @@ const Kit = (() => {
   (function boot() {
     let saved = null;
     try { saved = localStorage.getItem(STORE) } catch (e) { /* ignore */ }
-    root.dataset.theme = saved
-      || root.dataset.theme
-      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    root.dataset.theme = saved || root.dataset.theme || 'dark';
   })();
 
   const css = n => getComputedStyle(root).getPropertyValue('--' + n).trim();

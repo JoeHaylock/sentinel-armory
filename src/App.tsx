@@ -1,198 +1,137 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Kit from './lib/kit.js'
-import { CATS, OPS, R, SEED_LOG, ST_LBL, STAGES, VITALS, blocks, hex, issues, items, loadState, newIssue, newReq, requests, saveState } from './lib/ops.js'
-import Chart from './components/Chart'
+import {
+  CATS, CLS_SHORT, OPS, SEED_LOG, STAFF, ST_LBL, VITALS, asset, hhmm, hex,
+  isDueToday, isOverdue, isStale, items, issues, lastNote, loadState,
+  newIssue, newReq, readiness, requests, saveState, applyMove, applyStaffClass,
+} from './lib/ops.js'
 import AiScan, { ScanResult, ScanTarget } from './components/AiScan'
 import Catalog from './components/Catalog'
 import IssueDetail from './components/IssueDetail'
+import ItemDrawer from './components/ItemDrawer'
 
-interface Item { slot: string; id: string; cat: string; name: string; type: string; icon: string | null
-                 photo: string | null; serial: string; extra: Record<string, string>
-                 st: string; cond: number; svc: number; lastChk: string; cust: string | null }
-interface Req { id: string; itemId: string; slot: string; name: string; dir: 'OUT' | 'IN'
-                by: string; st: string; auto: boolean; t: string; ai: ScanResult | null; t0?: number }
-interface Issue { id: string; itemId: string; slot: string; name: string; icon: string | null
-                  type: string; loc: string; sev: string; score: number; note: string
-                  shots: number; dir: 'OUT' | 'IN'; by: string; t: string; st: string }
+type Cls = 'good' | 'flagged' | 'ooa'
+interface Item {
+  slot: string; id: string; cat: string; name: string; type: string; icon: string | null
+  photo: string | null; serial: string; extra: Record<string, string>
+  st: string; cls: Cls; flags: string[]; svc: number; lastChk: string; cust: string | null
+  outAt: string | null; dueAt: string | null; photoAt: string
+  notes: { t: string; by: string; text: string }[]
+  gradeHist: { t: string; cls: Cls; by: string; source: string; prev?: Cls }[]
+  moves: { t: string; dir: 'OUT' | 'IN'; by: string; signed: string; photo: { src: string; kind: string; at: string } | null; note: string; cls: Cls }[]
+  pending: { cls: Cls; tags: string[]; note: string; dir: 'OUT' | 'IN'; at: string; shots?: number; apply?: boolean } | null
+}
+interface Issue {
+  id: string; itemId: string; slot: string; name: string; icon: string | null
+  type: string; loc: string; sev: string; cls: Cls; tags: string[]; note: string
+  shots: number; dir: 'OUT' | 'IN'; by: string; t: string; st: string
+}
 interface Row { t: string; pid: string; act: string; cd: string; lv: string; issueId?: string }
 
 const clock = () => new Date().toTimeString().slice(0, 8)
-const CYCLE_S = 15
-const PASS_NOTES = ['Condition nominal', 'No defects detected', 'Wear within tolerance']
-const FLAG_NOTES = ['Surface wear on rail interface', 'Serial plate partially obscured', 'Strap fray detected at stitch line']
 
-/* restore the browser-local demo snapshot before first paint */
 loadState()
 
 export default function App() {
   const [sel, setSel] = useState<Item | null>(null)
-  const [pipeSel, setPipeSel] = useState<string | null>(null)
   const [logs, setLogs] = useState<Row[]>(SEED_LOG)
   const [now, setNow] = useState(clock)
-  const [cycleOn, setCycleOn] = useState(true)
   const [scan, setScan] = useState<{ item: Item; dir: 'OUT' | 'IN'; by: string } | null>(null)
   const [view, setView] = useState<'ops' | 'catalog'>('ops')
   const [issueSel, setIssueSel] = useState<Issue | null>(null)
+  const [q, setQ] = useState('')
   const [, force] = useState(0)
   const redraw = () => force(n => n + 1)
-
   const themeSlot = useRef<HTMLSpanElement>(null)
-  const cycIdx = useRef(0)
-  const nextRef = useRef(CYCLE_S)    // seconds until the next auto request
-  const cycleRef = useRef(true)
-  const scanRef = useRef(scan)
-  scanRef.current = scan
+  const scanRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { Kit.themeToggle(() => {}, themeSlot.current) }, [])
+  useEffect(() => {
+    const t = setInterval(() => setNow(clock()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault(); scanRef.current?.focus()
+      }
+      if (e.key === 'Escape') setSel(null)
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [])
 
   const addLog = (act: string, lv: string, issueId?: string) => setLogs(ls => [{
     t: clock(), pid: 'PID_' + (1000 + Math.floor(Math.random() * 9000)),
     act, cd: hex(Math.floor(Math.random() * 0xFFFFF)), lv, issueId,
   }, ...ls].slice(0, 42))
 
-  /* Commit a movement to the system — the AI verdict is the gate. */
-  const applyMove = (it: Item, dir: 'OUT' | 'IN', by: string, ai: ScanResult) => {
-    it.lastChk = clock().slice(0, 5)
-    if (ai.verdict === 'FLAG') {
-      it.st = 'hold'; VITALS.aiFlag++
-      const iss = newIssue(it, ai, dir, by) as Issue
-      issues.unshift(iss); if (issues.length > 20) issues.pop()
-      addLog(`AI_FLAG · ${it.slot} · ${ai.score}/100 · ${iss.type.toLowerCase()} @ ${iss.loc} · ${iss.id}`, 'warn', iss.id)
-      Kit.toast(`⚠ ${it.id} sent to HOLD · ${iss.id} ${iss.type}`)
-    } else {
-      it.st = dir === 'OUT' ? 'out' : 'rack'
-      it.cust = dir === 'OUT' ? by : null
-      if (dir === 'OUT') { VITALS.outsToday++; it.cond = Math.max(55, it.cond - 1) }
-      else VITALS.insToday++
-      VITALS.aiPass++
-      addLog(`AI_PASS · ${it.slot} · ${ai.score}/100 · ${ai.shots} frames`, 'ok')
-      addLog(`${dir === 'OUT' ? 'DEPLOY_OUT' : 'RETRIEVE_IN'} · ${it.slot} · ${by}`, 'ok')
-    }
-    saveState()
-  }
-
-  /* Every 15 s: next item in rotation gets a deploy/retrieve request.
-     The request then walks Requested → AI Check → Logged on its own,
-     so the whole pipeline gets exercised once per item per lap. */
-  const fireAuto = () => {
-    /* self-recovery: if the rack is running low on movable kit, clear one hold
-       (a supervisor signed it off) so the demo cycle keeps flowing */
-    const movable = items.filter((i: Item) => i.icon && (i.st === 'rack' || i.st === 'out')).length
-    if (movable <= 3) {
-      const held = items.find((i: Item) => i.st === 'hold')
-      if (held) {
-        held.st = 'rack'; held.cust = null
-        addLog(`HOLD_CLEAR · ${held.slot} · supervisor sign-off · auto`, 'ok')
-        saveState()
-      }
-    }
-    const track = items.filter((i: Item) => i.icon)
-    let it: Item | null = null
-    for (let n = 0; n < track.length; n++) {
-      const cand = track[cycIdx.current % track.length]; cycIdx.current++
-      if (cand.st === 'rack' || cand.st === 'out') { it = cand; break }
-    }
-    if (!it) { addLog('CYCLE_SKIP · no movable items', 'warn'); return }
-    const dir: 'OUT' | 'IN' = it.st === 'out' ? 'IN' : 'OUT'
-    const by = OPS[Math.floor(Math.random() * OPS.length)]
-    const rq = newReq(it, dir, by, true) as Req
-    rq.t0 = Date.now()
-    requests.unshift(rq); if (requests.length > 12) requests.pop()
-    it.st = 'check'
-    addLog(`REQ_CREATE · ${rq.id} · ${it.slot} ${dir} · auto`, 'ok')
-    Kit.toast(`AUTO_CYCLE · ${rq.id} · ${dir} ${it.name}`)
-  }
-
-  const progressAuto = () => {
-    let changed = false
-    for (const r of requests as Req[]) {
-      if (!r.auto || r.st === 'Logged' || !r.t0) continue
-      const age = (Date.now() - r.t0) / 1000
-      if (r.st === 'Requested' && age >= 2) { r.st = 'AI Check'; changed = true }
-      else if (r.st === 'AI Check' && age >= 7) {
-        const it = items.find((i: Item) => i.id === r.itemId)!
-        /* flag rarely — enough to demo the HOLD path without parking the rack */
-        const flag = Math.random() < .06
-        const ai: ScanResult = {
-          verdict: flag ? 'FLAG' : 'PASS',
-          score: flag ? Math.round(62 + R() * 14) : Math.round(90 + R() * 9),
-          serial: it.serial, shots: 2,
-          note: flag ? FLAG_NOTES[Math.floor(R() * FLAG_NOTES.length)]
-                     : PASS_NOTES[Math.floor(R() * PASS_NOTES.length)],
-        }
-        r.ai = ai; r.st = 'Logged'
-        applyMove(it, r.dir, r.by, ai)
-        changed = true
-      }
-    }
-    return changed
-  }
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      setNow(clock())
-      if (cycleRef.current && !scanRef.current) {
-        nextRef.current--
-        if (nextRef.current <= 0) { fireAuto(); nextRef.current = CYCLE_S }
-      }
-      progressAuto()
-      redraw()
-    }, 1000)
-    return () => clearInterval(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const toggleCycle = () => {
-    cycleRef.current = !cycleRef.current
-    setCycleOn(cycleRef.current)
-    if (cycleRef.current) nextRef.current = CYCLE_S
-    addLog(cycleRef.current ? 'AUTO_CYCLE · resumed' : 'AUTO_CYCLE · paused', cycleRef.current ? 'ok' : 'warn')
-  }
-
-  /* manual request from the rack detail panel → AI photo-check modal */
   const openScan = (it: Item, dir: 'OUT' | 'IN') => {
-    if (it.st === 'check' || it.st === 'hold') return
-    it.st = 'check'
-    setScan({ item: it, dir, by: 'This terminal' })
-    addLog(`REQ_CREATE · manual · ${it.slot} ${dir}`, 'ok')
+    if (it.st === 'hold' || it.pending) return
+    setScan({ item: it, dir, by: it.cust || OPS[0] })
+    addLog((dir === 'OUT' ? 'TAKE_OUT' : 'RETURN_IN') + ' · ' + it.slot + ' · check', 'ok')
     redraw()
   }
   const closeScan = (r: ScanResult | null) => {
     if (!scan) return
     const it = items.find((i: Item) => i.id === scan.item.id)!
     if (r) {
-      const rq = newReq(it, scan.dir, scan.by, false) as Req
+      const rq: { ai: ScanResult | null; st: string } = newReq(it, scan.dir, scan.by, false)
       rq.ai = r; rq.st = 'Logged'
       requests.unshift(rq); if (requests.length > 12) requests.pop()
-      applyMove(it, scan.dir, scan.by, r)
+      it.pending = { cls: r.cls, tags: r.tags, note: r.note, dir: scan.dir, at: new Date().toISOString(), shots: r.shots, apply: true }
+      addLog('AI_PROPOSE · ' + it.slot + ' · ' + CLS_SHORT[r.cls] + (r.tags[0] ? ' · ' + r.tags[0] : ''), 'warn')
+      Kit.toast('AI proposed ' + CLS_SHORT[r.cls] + ' — confirm or override')
+      setSel(it)
     } else {
-      it.st = it.cust ? 'out' : 'rack'   // aborted — item goes back to whatever it was
-      addLog(`AI_ABORT · ${it.slot}`, 'warn')
+      addLog('CHECK_ABORT · ' + it.slot, 'warn')
     }
-    setScan(null); redraw()
-  }
-  const clearHold = (it: Item) => {
-    it.st = 'rack'; it.cust = null
-    saveState()
-    addLog(`HOLD_CLEAR · ${it.slot} → rack`, 'ok'); redraw()
+    setScan(null); saveState(); redraw()
   }
 
-  /* actions from the issue detail modal */
+  const commitMove = (it: Item, cls: Cls, dir: 'OUT' | 'IN') => {
+    const by = dir === 'OUT' ? (it.cust || OPS[0]) : (it.cust || STAFF)
+    applyMove(it, dir, by, cls)
+    if (cls === 'ooa' || cls === 'flagged') {
+      const iss = newIssue(it, { cls, tags: it.flags, note: lastNote(it)?.text || '', shots: 2 }, dir, STAFF) as Issue
+      issues.unshift(iss)
+      addLog((cls === 'ooa' ? 'OOA' : 'FLAG') + ' · ' + it.slot + ' · ' + iss.id, 'warn', iss.id)
+    } else {
+      addLog((dir === 'OUT' ? 'TAKE_OUT' : 'RETURN_IN') + ' · ' + it.slot + ' · ' + CLS_SHORT[cls] + ' · ' + STAFF, 'ok')
+    }
+  }
+
+  const settle = (it: Item, cls: Cls, tags: string[], note: string, source: string) => {
+    const pendingDir = it.pending?.dir
+    const apply = !!(it.pending as { apply?: boolean } | null)?.apply && pendingDir
+    applyStaffClass(it, cls, tags, note, source)
+    if (apply && pendingDir) commitMove(it, cls, pendingDir)
+    saveState(); redraw()
+    Kit.toast((source === 'ai-override' ? 'Override ' : 'Confirmed ') + CLS_SHORT[cls] + ' · ' + STAFF)
+  }
+  const onConfirm = (it: Item) => {
+    if (!it.pending) return
+    settle(it, it.pending.cls, it.pending.tags, it.pending.note, 'ai-confirmed')
+  }
+  const onOverride = (it: Item, cls: Cls) => {
+    const note = 'Override from ' + CLS_SHORT[it.pending?.cls || it.cls] + ' to ' + CLS_SHORT[cls]
+    settle(it, cls, cls === 'good' ? [] : (it.pending?.tags || it.flags), note, 'ai-override')
+  }
+
   const issueAction = (action: 'return-rack' | 'work-order' | 'deploy-anyway', iss: Issue) => {
     const it = items.find((i: Item) => i.id === iss.itemId)
     if (action === 'return-rack' && it) {
-      it.st = 'rack'; it.cust = null; iss.st = 'Resolved'
-      addLog(`HOLD_CLEAR · ${it.slot} → rack · ${iss.id} resolved`, 'ok')
-      Kit.toast(`${iss.id} resolved · ${it.id} back in rack`)
+      it.st = 'rack'; it.cust = null; it.outAt = null; it.dueAt = null; iss.st = 'Resolved'
+      if (it.cls === 'ooa') it.cls = 'flagged'
+      addLog('HOLD_CLEAR · ' + it.slot + ' · ' + STAFF, 'ok')
     } else if (action === 'work-order') {
       iss.st = 'Work order raised'
-      addLog(`WO_RAISE · ${iss.id} · ${iss.type} @ ${iss.loc}`, 'warn', iss.id)
-      Kit.toast(`Repair work order raised for ${iss.id} (demo)`)
+      addLog('WO_RAISE · ' + iss.id, 'warn', iss.id)
     } else if (action === 'deploy-anyway' && it) {
-      it.st = 'out'; it.cust = 'This terminal'; iss.st = 'Overridden'
-      VITALS.outsToday++
-      addLog(`DEPLOY_OUT · ${it.slot} · supervisor override · ${iss.id}`, 'warn', iss.id)
-      Kit.toast(`${it.id} deployed despite ${iss.id} — override logged`)
+      applyStaffClass(it, 'flagged', it.flags, 'Issued despite OOA record', 'ai-override')
+      applyMove(it, 'OUT', STAFF, 'flagged')
+      iss.st = 'Overridden'
+      addLog('TAKE_OUT · ' + it.slot + ' · override · ' + STAFF, 'warn', iss.id)
     }
     saveState(); setIssueSel(null); redraw()
   }
@@ -202,260 +141,177 @@ export default function App() {
     if (iss) setIssueSel(iss)
   }
 
-  /* ── vitals ── */
-  const track = items.filter((i: Item) => i.icon)
-  const vrows = [
-    { l: 'Items in rack', v: `${VITALS.inRack()}/${track.length}`, pc: VITALS.inRack() / track.length * 100, den: `= ${VITALS.inRack()} racked / ${track.length} tracked items`, warn: false },
-    { l: 'Deployed right now', v: `${VITALS.deployed()}/${track.length}`, pc: VITALS.deployed() / track.length * 100, den: `= ${VITALS.outsToday} deploys vs ${VITALS.insToday} retrieves today`, warn: false },
-    { l: 'AI check pass rate', v: `${VITALS.passRate().toFixed(1)}%`, pc: VITALS.passRate(), den: `= ${VITALS.aiPass} passed / ${VITALS.aiPass + VITALS.aiFlag} AI checks today`, warn: false },
-    { l: 'Flags / open requests', v: `${VITALS.aiFlag} / ${VITALS.openReqs()}`, pc: VITALS.aiFlag * 18 + VITALS.openReqs() * 10, den: `= ${VITALS.aiFlag} items flagged · ${VITALS.openReqs()} requests in flight`, warn: VITALS.aiFlag > 0 },
-  ]
+  const needle = q.trim().toLowerCase()
+  const match = (it: Item) => {
+    if (!needle) return true
+    const serial = String(it.serial).toLowerCase()
+    const last = serial.slice(-4)
+    return serial.includes(needle) || last.includes(needle) || it.name.toLowerCase().includes(needle)
+      || it.id.toLowerCase().includes(needle) || it.slot.toLowerCase().includes(needle)
+      || (it.cust || '').toLowerCase().includes(needle)
+  }
+  const tracked = items.filter((i: Item) => i.icon) as Item[]
+  const shown = tracked.filter(match)
 
-  /* ── movement queue ── */
-  let list = (requests as Req[]).filter(r => pipeSel === 'FLAGGED' ? r.ai?.verdict === 'FLAG' : !pipeSel || r.st === pipeSel)
-  if (sel) list = list.filter(r => r.itemId === sel.id)
+  const cols = useMemo(() => ({
+    out: shown.filter(i => i.st === 'out'),
+    due: shown.filter(i => i.st === 'out' && isDueToday(i.dueAt)),
+    flagged: shown.filter(i => i.cls === 'flagged'),
+    ooa: shown.filter(i => i.cls === 'ooa'),
+  }), [shown, now]) // now so overdue labels tick
 
-  const moveOpt = () => {
-    const r = Kit.rng(77)
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Today']
-    const outs = days.map((_, i) => i === 6 ? VITALS.outsToday : Math.round(9 + r() * 12))
-    const ins = days.map((_, i) => i === 6 ? VITALS.insToday : Math.round(8 + r() * 11))
-    return {
-      legend: { show: true, top: 0, right: 6, icon: 'rect', itemWidth: 9, itemHeight: 2, textStyle: { color: Kit.css('muted'), fontSize: 9.5, fontFamily: Kit.css('mono') } },
-      xAxis: Kit.axis('category', { data: days }),
-      yAxis: [Kit.axis('value'), { ...Kit.axis('value', { min: 80, max: 100, axisLabel: { formatter: (v: number) => v + '%' } }), splitLine: { show: false } }],
-      series: [
-        { name: 'Deploys OUT', type: 'bar', data: outs, barWidth: '26%', itemStyle: { color: Kit.css('accent'), opacity: .75 } },
-        { name: 'Retrieves IN', type: 'bar', data: ins, barWidth: '26%', itemStyle: { color: Kit.css('s3'), opacity: .5 } },
-        { name: 'AI pass rate', type: 'line', yAxisIndex: 1, data: days.map((_, i) => i === 6 ? +VITALS.passRate().toFixed(1) : +(91 + r() * 8).toFixed(1)),
-          symbolSize: 4, lineStyle: { width: 1.6, color: Kit.css('pos') }, itemStyle: { color: Kit.css('pos') } },
-      ],
-    }
+  const counts = {
+    out: tracked.filter(i => i.st === 'out').length,
+    due: tracked.filter(i => i.st === 'out' && isDueToday(i.dueAt)).length,
+    flagged: tracked.filter(i => i.cls === 'flagged').length,
+    ooa: tracked.filter(i => i.cls === 'ooa').length,
   }
 
   return (
     <>
       <header>
-        <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+        <div className="topbar">
           <div className="ascii">
-            <div className="lg">SENTINEL<em>▮</em>ARMORY</div>
-            <div className="sub">KIT &amp; FIREARM INVENTORY OPS · AI CHECK DEMO</div>
+            <div className="lg">Sentinel Armory</div>
+            <div className="sub">QM desk · Vault B · Cage 3</div>
           </div>
+          <label className="scanbar">
+            <span>Scan</span>
+            <input ref={scanRef} type="search" autoComplete="off" spellCheck={false}
+                   placeholder="Serial or last-4"
+                   value={q} onChange={e => setQ(e.target.value)} />
+          </label>
           <div className="spacer" />
           <div className="btns">
             <div className="seg viewnav">
-              <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>Ops board</button>
-              <button className={view === 'catalog' ? 'on' : ''} onClick={() => setView('catalog')}>Stock catalog</button>
+              <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>Board</button>
+              <button className={view === 'catalog' ? 'on' : ''} onClick={() => setView('catalog')}>Stock</button>
             </div>
-            <button className={'btn' + (cycleOn ? ' primary' : '')} onClick={toggleCycle}>
-              {cycleOn ? `▮ AUTO_CYCLE ${nextRef.current}s` : '▶ AUTO_CYCLE paused'}
-            </button>
             <span id="theme-slot" ref={themeSlot} />
           </div>
         </div>
         <div className="sysline">
-          <div>SESSION: <b>RACK-TERM-01</b></div>
-          <div>LOC: <b>Vault B · Cage 3</b></div>
-          <div>STATUS: <b className="st-ok">{cycleOn ? 'LIVE_TEST' : 'PAUSED'}</b></div>
-          <div>CYCLE: <b>1 req / {CYCLE_S}s · round-robin</b></div>
-          <div>SYS_TIME: <b id="clock">{now}</b></div>
+          <div>SESSION <b>RACK-TERM-01</b></div>
+          <div>STAFF <b>{STAFF}</b></div>
+          <div>OUT <b>{counts.out}</b></div>
+          <div>DUE TODAY <b>{counts.due}</b></div>
+          <div>FLAGGED <b>{counts.flagged}</b></div>
+          <div>OOA <b>{counts.ooa}</b></div>
+          <div>TIME <b id="clock">{now}</b></div>
         </div>
       </header>
 
-      <div className="halftone" />
-
       {view === 'catalog' ? (
         <div className="app catalogwrap">
-          <Catalog items={items as Item[]} cats={CATS} onAction={openScan} onClearHold={clearHold} onOpenIssue={openIssue} />
+          <Catalog items={items as Item[]} cats={CATS}
+                   onAction={openScan as never}
+                   onClearHold={((it: Item) => { it.st = 'rack'; it.cust = null; saveState(); redraw() }) as never}
+                   onOpenIssue={openIssue}
+                   onOpenItem={((it: Item) => { setView('ops'); setSel(it) }) as never} />
         </div>
       ) : (
-      <div className="app">
-        <div className="row r1">
-          <section className="cell">
-            <div className="ph"><h2>CORE VITALS · INVENTORY</h2><span className="tail">[ARM] TODAY</span></div>
-            <div className="pb" id="vitals">
-              {vrows.map(r => (
-                <div className={'vrow' + (r.warn ? ' warn' : '')} key={r.l}>
-                  <div className="t"><span>{r.l}</span><span className="dots" /><b>{r.v}</b></div>
-                  <div className="blocks" dangerouslySetInnerHTML={{ __html: blocks(r.pc) }} />
-                  <div className="den">{r.den}</div>
-                </div>
-              ))}
-              <div className="legend">
-                <div className="lg-t">NAMING MATRIX</div>
-                <div><b>S-xx</b> rack slot — a physical position in the cage</div>
-                <div><b>ARM-1xx</b> asset record — one tracked item &amp; its serial</div>
-                <div><b>RQ-xxxx</b> movement request — one deploy / retrieve</div>
-              </div>
-              <div className="den" style={{ marginTop: 8 }}>
-                Demo build — all items, operators and AI verdicts are simulated; state persists in this browser only.
-              </div>
-            </div>
-          </section>
-
-          <section className="cell">
-            <div className="ph"><h2>CAGE CCTV · CAM 03</h2><span className="tail"><span className="rec-inline">● REC</span> VAULT B</span></div>
+      <div className="app board-app">
+        <div className="board">
+          <BoardCol title="Out now" n={needle ? cols.out.length : counts.out} items={cols.out} sel={sel} onPick={setSel} kind="out" />
+          <BoardCol title="Due today" n={needle ? cols.due.length : counts.due} items={cols.due} sel={sel} onPick={setSel} kind="due" />
+          <BoardCol title="Flagged" n={needle ? cols.flagged.length : counts.flagged} items={cols.flagged} sel={sel} onPick={setSel} kind="flagged" />
+          <BoardCol title="OOA" n={needle ? cols.ooa.length : counts.ooa} items={cols.ooa} sel={sel} onPick={setSel} kind="ooa" />
+        </div>
+        <aside className="side">
+          <section className="cell cctv-cell">
+            <div className="ph"><h2>Cage 3</h2><span className="tail">CAM 03</span></div>
             <div className="cctv-wrap">
-              <img className="cctv-still" src="/cage-cctv-still.png" alt="CCTV still — Vault B cage 3" />
-              <video src="/cage-cctv.mp4" autoPlay muted loop playsInline
+              <img className="cctv-still" src={asset('cage-cctv-still.png')} alt="CCTV still, Vault B cage 3" />
+              <video src={asset('cage-cctv.mp4')} autoPlay muted loop playsInline
                      onError={e => { (e.target as HTMLVideoElement).style.display = 'none' }} />
-              <div className="cctv-offline">
-                <div className="s">still frame · <b>cage-cctv.mp4</b> drops in here when generated</div>
-              </div>
               <div className="cctv-osd">
-                <span>CAM 03 · VAULT B · CAGE 3</span>
+                <span>CAM 03</span>
                 <span>{now}</span>
               </div>
-              <div className="cctv-scan" />
-              <span className="radar-note">STILL FRAME · IMG→VIDEO LOOP PENDING</span>
             </div>
           </section>
-
-          <section className="cell">
-            <div className="ph"><h2>TRANSACTION LOG</h2>
-              <span className="tail">NEXT AUTO ▮ {cycleOn ? nextRef.current + 's' : '—'}</span></div>
+          <section className="cell log-cell">
+            <div className="ph"><h2>Log</h2></div>
             <div className="pb"><div className="log" id="log">
-              {logs.map((r, i) => (
+              {logs.slice(0, 14).map((r, i) => (
                 <div className={'lr' + (r.lv === 'warn' ? ' warn' : '') + (r.issueId ? ' clickable' : '')}
                      key={r.cd + i}
-                     title={r.issueId ? 'Open issue record ' + r.issueId : undefined}
                      onClick={() => openIssue(r.issueId)}>
                   <time>{r.t}</time>
-                  <span className="pid">{r.pid}</span>
-                  <span className="act">{r.act}</span><span className="cd">{r.cd}</span>
+                  <span className="act">{r.act}</span>
                 </div>
               ))}
             </div></div>
           </section>
-        </div>
-
-        <div className="row r2">
-          <section className="cell">
-            <div className="ph"><h2>RACK MATRIX · LIVE CAGE MAP</h2><span className="tail">16 SLOTS · CLICK TO SELECT</span></div>
-            <div className="pb">
-              <div className="rackgrid">
-                {items.map((d: Item) => (
-                  <div key={d.slot} className={`slot ${d.st}` + (d === sel ? ' sel' : '')}
-                       title={`${d.slot} · ${d.name} · ${ST_LBL[d.st]}`}
-                       onClick={() => setSel(s => s === d ? null : d)}>
-                    {d.icon ? <img src={`/icons/${d.icon}.png`} alt={d.name} /> : <span className="empty-dash">·</span>}
-                    <i /><span className="n">{d.slot}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="racklegend">
-                <span><i className="sw rack" />In rack</span>
-                <span><i className="sw out" />Deployed</span>
-                <span><i className="sw check" />AI check</span>
-                <span><i className="sw hold" />Hold</span>
-                <span><i className="sw empty" />Empty</span>
-              </div>
-              <div className="devstat">
-                {!sel ? 'No slot selected — click a rack cell for the item record and movement actions.'
-                  : sel.st === 'empty' ? <><span className="clr" onClick={() => setSel(null)}>Clear selection ×</span>
-                      <b>{sel.slot}</b> · unassigned — no item racked here.</>
-                  : <>
-                    <span className="clr" onClick={() => setSel(null)}>Clear selection ×</span>
-                    <div className="itemline">
-                      {sel.icon && <img src={`/icons/${sel.icon}.png`} alt={sel.name} />}
-                      <div>
-                        <b>{sel.id}</b>{` · ${sel.name} · `}<b>{ST_LBL[sel.st]}</b><br />
-                        {`${sel.type} · SN ${sel.serial} · Cond `}<b>{sel.cond}/100</b>
-                        {` · Svc ${Kit.fmt(sel.svc)} h · Last AI check ${sel.lastChk}`}<br />
-                        {sel.st === 'out' ? <>Signed to <b>{sel.cust}</b></> : sel.st === 'hold' ? <b style={{ color: 'var(--neg)' }}>Held for review</b> : 'No current custodian'}
-                        {(() => {
-                          const h = (issues as Issue[]).filter(x => x.itemId === sel.id)
-                          return h.length ? <> · <span className="issuelink" onClick={e => { e.stopPropagation(); openIssue(h[0].id) }}>
-                            {h.length} issue{h.length > 1 ? 's' : ''} on record ▸</span></> : null
-                        })()}
-                      </div>
-                    </div>
-                    <div className="acts" style={{ marginTop: 7 }}>
-                      {sel.st === 'rack' && <button onClick={() => openScan(sel, 'OUT')}>Deploy OUT → AI check</button>}
-                      {sel.st === 'out' && <button onClick={() => openScan(sel, 'IN')}>Retrieve IN → AI check</button>}
-                      {sel.st === 'hold' && <button className="done" onClick={() => clearHold(sel)}>Clear hold → rack</button>}
-                      {sel.st === 'check' && <span style={{ color: 'var(--warn)' }}>AI check in progress…</span>}
-                    </div>
-                  </>}
-              </div>
-            </div>
-          </section>
-
-          <section className="cell">
-            <div className="ph"><h2>MOVEMENT QUEUE</h2>
-              <span className="tail">{`${(requests as Req[]).filter(r => r.st !== 'Logged').length} in flight`}</span></div>
-            <div className="pb">
-              <div className="den" style={{ marginBottom: 8 }}>
-                Workflow: one RQ per deploy/retrieve — slot · asset · time · requester · AI verdict. Flagged rows open the issue record.
-              </div>
-              <div className="pipe">
-                {STAGES.map((s: string) => (
-                  <div key={s} className={pipeSel === s ? 'on' : ''}
-                       onClick={() => setPipeSel(p => p === s ? null : s)}>
-                    <div className="n">{(requests as Req[]).filter(r => r.st === s).length}</div>
-                    <div className="l">{s}</div>
-                  </div>
-                ))}
-                <div className={pipeSel === 'FLAGGED' ? 'on' : ''}
-                     onClick={() => setPipeSel(p => p === 'FLAGGED' ? null : 'FLAGGED')}>
-                  <div className="n">{(requests as Req[]).filter(r => r.ai?.verdict === 'FLAG').length}</div>
-                  <div className="l">Flagged</div>
-                </div>
-              </div>
-              <div>
-                {!list.length ? <div className="tk"><div className="m">No movement requests match this filter.</div></div>
-                  : list.map(t => {
-                    const iss = t.ai?.verdict === 'FLAG'
-                      ? (issues as Issue[]).find(x => x.itemId === t.itemId && x.t === t.t) ||
-                        (issues as Issue[]).find(x => x.itemId === t.itemId)
-                      : null
-                    return (
-                    <div className={'tk' + (t.ai?.verdict === 'FLAG' ? ' over flagged' : '')}
-                         key={t.id}
-                         title={iss ? 'Open issue record ' + iss.id : undefined}
-                         onClick={() => iss && setIssueSel(iss)}>
-                      <div className="t">
-                        <span className="id">{t.id}</span>
-                        <span className={'dir dir-' + t.dir}>{t.dir === 'OUT' ? '▲ OUT' : '▼ IN'}</span>
-                        <span className="ti">{t.name}</span>
-                        <span className={'st st-' + t.st.replace(' ', '')}>{t.st}</span>
-                      </div>
-                      <div className="m">
-                        {`${t.slot} · ${t.itemId} · req ${t.t} · ${t.by} · ${t.auto ? 'auto-cycle' : 'manual'}`}
-                        {t.ai && t.ai.verdict === 'PASS' ? <> · AI <b style={{ color: 'var(--pos)' }}>
-                          PASS {t.ai.score}/100</b> · {t.ai.shots} frames · {t.ai.note}</> : null}
-                      </div>
-                      {iss && t.ai?.verdict === 'FLAG' && (
-                        <div className="flagbox">
-                          <span className="fl">⚠ {iss.id}</span>
-                          <span className="ft">{t.dir === 'IN' ? 'Returned' : 'Deployed'} {t.ai!.score}/100 · {iss.type} — {iss.loc}</span>
-                          <span className="fr">REVIEW ▸</span>
-                        </div>
-                      )}
-                    </div>
-                    )
-                  })}
-              </div>
-            </div>
-          </section>
-
-          <section className="cell">
-            <div className="ph"><h2>MOVEMENT &amp; AI PASS</h2><span className="tail">7D</span></div>
-            <div className="pb" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <Chart id="c-move" className="" style={{ flex: 1, minHeight: 0 }} build={moveOpt} />
-            </div>
-          </section>
-        </div>
+        </aside>
       </div>
       )}
 
+      {sel && (
+        <ItemDrawer
+          item={sel}
+          onClose={() => setSel(null)}
+          onTakeOut={it => openScan(it, 'OUT')}
+          onReturn={it => openScan(it, 'IN')}
+          onConfirm={onConfirm}
+          onOverride={onOverride}
+          onOpenIssue={openIssue}
+          issueIds={(issues as Issue[]).filter(x => x.itemId === sel.id && x.st === 'Open').map(x => x.id)}
+        />
+      )}
       {scan && <AiScan item={scan.item as ScanTarget} dir={scan.dir} onDone={closeScan} />}
       {issueSel && (
-        <IssueDetail issue={issueSel}
-                     item={items.find((i: Item) => i.id === issueSel.itemId)}
+        <IssueDetail issue={issueSel as never}
+                     item={items.find((i: Item) => i.id === issueSel.itemId) as never}
                      onClose={() => setIssueSel(null)}
-                     onAction={issueAction} />
+                     onAction={issueAction as never} />
       )}
     </>
   )
 }
+
+function BoardCol({ title, n, items: rows, sel, onPick, kind }: {
+  title: string; n: number; items: Item[]; sel: Item | null; onPick: (it: Item) => void; kind: string
+}) {
+  return (
+    <section className={'col col-' + kind}>
+      <div className="col-h">
+        <h2>{title}</h2>
+        <b>{n}</b>
+      </div>
+      <div className="col-b">
+        {!rows.length && <div className="col-empty">None</div>}
+        {rows.map(it => {
+          const stale = isStale(it.photoAt)
+          const rdy = readiness(it)
+          const note = lastNote(it)
+          return (
+            <button type="button" key={it.id}
+                    className={'brow' + (sel === it ? ' on' : '') + (rdy === 'stale' ? ' stale' : '')}
+                    onClick={() => onPick(it)}>
+              <span className="brow-id">
+                {it.icon && <img src={asset('icons/' + it.icon + '.png')} alt="" />}
+                <span>
+                  <b>{it.name.replace(/^L85A3 /, '').replace(/^L131A1 /, '')}</b>
+                  <i>{it.serial}</i>
+                </span>
+              </span>
+              <span className="brow-meta">
+                {kind === 'out' || kind === 'due'
+                  ? <em>{hhmm(it.outAt)}{it.dueAt ? ' / ' + hhmm(it.dueAt) : ''}{isOverdue(it.dueAt) ? ' overdue' : ''}</em>
+                  : <em>{it.cust || 'cage'}</em>}
+                <span className={'cls-chip cls-' + it.cls + (stale ? ' stale' : '')}>
+                  {stale ? 'Photo stale' : CLS_SHORT[it.cls]}
+                </span>
+              </span>
+              {note && kind !== 'out' && <span className="brow-note">{note.text}</span>}
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+void ST_LBL
+void VITALS

@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { ST_LBL, issues } from '../lib/ops.js'
+import { CLS_SHORT, ST_LBL, asset, isStale, issues } from '../lib/ops.js'
 
+type Cls = 'good' | 'flagged' | 'ooa'
 interface Item { slot: string; id: string; cat: string; name: string; type: string; icon: string | null
                  photo: string | null; serial: string; extra: Record<string, string>
-                 st: string; cond: number; svc: number; lastChk: string; cust: string | null }
+                 st: string; cls: Cls; svc: number; lastChk: string; cust: string | null; photoAt: string }
 interface Cat { key: string; blurb: string; photo: string | null }
 interface Props {
   items: Item[]
@@ -11,11 +12,10 @@ interface Props {
   onAction: (it: Item, dir: 'OUT' | 'IN') => void
   onClearHold: (it: Item) => void
   onOpenIssue: (id: string) => void
+  onOpenItem?: (it: Item) => void
 }
 
-/* Stock catalog — categories on the left, drill into one to see every
-   tracked item with its photo, serial, live status and movement actions. */
-export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssue }: Props) {
+export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssue, onOpenItem }: Props) {
   const [openCat, setOpenCat] = useState<string | null>('Rifles')
   const [openItem, setOpenItem] = useState<string | null>(null)
 
@@ -24,9 +24,8 @@ export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssu
 
   return (
     <div className="catalog">
-      {/* ── category rail ── */}
       <div className="catlist">
-        <div className="ph" style={{ padding: '9px 13px 6px' }}><h2>ACTIVE STOCK · CATEGORIES</h2></div>
+        <div className="ph" style={{ padding: '9px 13px 6px' }}><h2>Stock</h2></div>
         {cats.map(c => {
           const its = inCat(c.key)
           const out = its.filter(i => i.st === 'out').length
@@ -34,11 +33,11 @@ export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssu
           return (
             <div key={c.key} className={'catrow' + (open ? ' open' : '')} onClick={() => { setOpenCat(open ? null : c.key); setOpenItem(null) }}>
               <div className="catrow-t">
-                <span className="chev">{open ? '▾' : '▸'}</span>
+                <span className="chev">{open ? 'v' : '>'}</span>
                 <span className="catname">{c.key}</span>
                 <span className="dots" />
                 <b>{its.length}</b>
-                <span className={'catstat' + (out ? ' out' : '')}>{out ? `${out} out` : 'all in'}</span>
+                <span className={'catstat' + (out ? ' out' : '')}>{out ? out + ' out' : 'all in'}</span>
               </div>
               <div className="catrow-b">{c.blurb}</div>
               {open && (
@@ -49,7 +48,7 @@ export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssu
                       <span className={'dot ' + it.st} />
                       <span className="nm">{it.name}</span>
                       <span className="sn">{it.serial}</span>
-                      <span className={'st ' + it.st}>{ST_LBL[it.st]}</span>
+                      <span className={'cls-chip cls-' + it.cls}>{CLS_SHORT[it.cls]}</span>
                     </div>
                   ))}
                 </div>
@@ -59,56 +58,57 @@ export default function Catalog({ items, cats, onAction, onClearHold, onOpenIssu
         })}
       </div>
 
-      {/* ── item detail ── */}
       <div className="catdetail">
         {!selected ? (
           <div className="cat-empty">
-            <div className="big">▦</div>
-            <div>Select a category, then an item, to open its record.</div>
-            <div className="den">Photos are representative stock shots; the blueprint glyph is the canonical rack icon.</div>
+            <div>Select a category, then an item.</div>
+            <div className="den">Opens the stock record. Use the board for due / out work.</div>
           </div>
         ) : (
           <div className="catcard">
             <div className="catphoto">
               {selected.photo
-                ? <img src={selected.photo} alt={selected.name}
+                ? <img src={asset(selected.photo)} alt={selected.name}
                        onError={e => { (e.target as HTMLImageElement).style.display = 'none';
                                        (e.target as HTMLImageElement).parentElement!.classList.add('noimg') }} />
                 : null}
-              {(!selected.photo) && selected.icon && <img className="glyph" src={`/icons/${selected.icon}.png`} alt={selected.name} />}
-              <span className="catphoto-tag">STOCK PHOTO · {selected.cat.toUpperCase()}</span>
+              {(!selected.photo) && selected.icon && <img className="glyph" src={asset('icons/' + selected.icon + '.png')} alt={selected.name} />}
+              <span className="catphoto-tag">{selected.cat.toUpperCase()}</span>
             </div>
             <div className="catinfo">
-              <div className="t"><b>{selected.name}</b><span className={'dir st-' + selected.st}>{ST_LBL[selected.st]}</span></div>
+              <div className="t">
+                <b>{selected.name}</b>
+                <span className={'cls-chip cls-' + selected.cls}>{isStale(selected.photoAt) ? 'Photo stale' : CLS_SHORT[selected.cls]}</span>
+              </div>
               <table className="spec">
                 <tbody>
-                  <tr><td>Asset ID</td><td>{selected.id}</td></tr>
+                  <tr><td>Asset</td><td>{selected.id}</td></tr>
                   <tr><td>Serial</td><td>{selected.serial}</td></tr>
-                  <tr><td>Class</td><td>{selected.type}</td></tr>
+                  <tr><td>Type</td><td>{selected.type}</td></tr>
                   {'size' in selected.extra ? <tr><td>Size</td><td>{selected.extra.size}</td></tr> : null}
-                  <tr><td>Rack slot</td><td>{selected.slot}</td></tr>
-                  <tr><td>Condition</td><td>{selected.cond}/100</td></tr>
-                  <tr><td>Service hours</td><td>{selected.svc}</td></tr>
-                  <tr><td>Last AI check</td><td>{selected.lastChk}</td></tr>
-                  <tr><td>Custodian</td><td>{selected.cust || '—'}</td></tr>
+                  <tr><td>Slot</td><td>{selected.slot}</td></tr>
+                  <tr><td>Class</td><td>{CLS_SHORT[selected.cls]}</td></tr>
+                  <tr><td>Last photo</td><td>{selected.lastChk}{isStale(selected.photoAt) ? ' · stale' : ''}</td></tr>
+                  <tr><td>Custodian</td><td>{selected.cust || '--'}</td></tr>
+                  <tr><td>State</td><td>{ST_LBL[selected.st as keyof typeof ST_LBL]}</td></tr>
                 </tbody>
               </table>
               <div className="acts" style={{ marginTop: 10 }}>
-                {selected.st === 'rack' && <button onClick={() => onAction(selected, 'OUT')}>Deploy OUT → AI check</button>}
-                {selected.st === 'out' && <button onClick={() => onAction(selected, 'IN')}>Retrieve IN → AI check</button>}
-                {selected.st === 'hold' && <button className="done" onClick={() => onClearHold(selected)}>Clear hold → rack</button>}
-                {selected.st === 'check' && <span style={{ color: 'var(--warn)' }}>AI check in progress…</span>}
+                {onOpenItem && <button onClick={() => onOpenItem(selected)}>Open file</button>}
+                {selected.st === 'rack' && <button onClick={() => onAction(selected, 'OUT')}>Take out</button>}
+                {selected.st === 'out' && <button onClick={() => onAction(selected, 'IN')}>Return</button>}
+                {selected.st === 'hold' && <button className="done" onClick={() => onClearHold(selected)}>Return to rack</button>}
               </div>
               {(() => {
-                const hist = (issues as any[]).filter(x => x.itemId === selected.id)
+                const hist = (issues as { id: string; itemId: string; type: string; loc: string; cls: string; st: string }[]).filter(x => x.itemId === selected.id)
                 return hist.length ? (
                   <div className="issuehist">
-                    <div className="ih-t">ISSUE HISTORY · {hist.length}</div>
+                    <div className="ih-t">RECORDS · {hist.length}</div>
                     {hist.map(x => (
                       <div key={x.id} className="ih-row" onClick={() => onOpenIssue(x.id)}>
                         <span className="ih-id">{x.id}</span>
                         <span className="ih-tx">{x.type} — {x.loc}</span>
-                        <span className="ih-sc">{x.score}/100</span>
+                        <span className="ih-sc">{CLS_SHORT[x.cls as Cls] || x.cls}</span>
                         <span className={'ih-st st-' + x.st.replace(/\s/g, '')}>{x.st}</span>
                       </div>
                     ))}
