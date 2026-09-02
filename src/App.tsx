@@ -141,6 +141,7 @@ export default function App() {
 
   const openScan = (it: Item, dir: 'OUT' | 'IN') => {
     if (it.st === 'hold' || it.pending) return
+    setSel(null)
     setScan({ item: it, dir, by: it.cust || OPS[0] })
     addLog((dir === 'OUT' ? 'TAKE_OUT' : 'RETURN_IN') + ' · ' + it.slot + ' · check', 'ok')
     redraw()
@@ -158,6 +159,7 @@ export default function App() {
       setSel(it)
     } else {
       addLog('CHECK_ABORT · ' + it.slot, 'warn')
+      setSel(it)
     }
     setScan(null); saveState(); redraw()
   }
