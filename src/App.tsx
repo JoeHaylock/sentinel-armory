@@ -3,7 +3,7 @@ import Kit from './lib/kit.js'
 import {
   CATS, CLS_SHORT, OPS, SEED_LOG, STAFF, STAGES, ST_LBL, VITALS, asset, blocks, hex,
   isDueToday, isStale, items, issues, lastNote, loadState,
-  newIssue, newReq, readiness, requests, saveState, applyMove, applyStaffClass,
+  newIssue, newReq, proposeClass, readiness, requests, saveState, applyMove, applyStaffClass,
 } from './lib/ops.js'
 import Chart from './components/Chart'
 import AiScan, { ScanResult, ScanTarget } from './components/AiScan'
@@ -24,7 +24,7 @@ interface Item {
 }
 interface Req {
   id: string; itemId: string; slot: string; name: string; dir: 'OUT' | 'IN'
-  by: string; st: string; auto: boolean; t: string; ai: ScanResult | null
+  by: string; st: string; auto: boolean; t: string; ai: ScanResult | null; t0?: number
 }
 interface Issue {
   id: string; itemId: string; slot: string; name: string; icon: string | null
@@ -34,6 +34,7 @@ interface Issue {
 interface Row { t: string; pid: string; act: string; cd: string; lv: string; issueId?: string }
 
 const clock = () => new Date().toTimeString().slice(0, 8)
+const CYCLE_S = 15
 
 loadState()
 
@@ -46,16 +47,18 @@ export default function App() {
   const [view, setView] = useState<'ops' | 'catalog'>('ops')
   const [issueSel, setIssueSel] = useState<Issue | null>(null)
   const [q, setQ] = useState('')
+  const [cycleOn, setCycleOn] = useState(true)
   const [, force] = useState(0)
   const redraw = () => force(n => n + 1)
   const themeSlot = useRef<HTMLSpanElement>(null)
   const qRef = useRef<HTMLInputElement>(null)
+  const cycIdx = useRef(0)
+  const nextRef = useRef(CYCLE_S)
+  const cycleRef = useRef(true)
+  const scanRef = useRef(scan)
+  scanRef.current = scan
 
   useEffect(() => { Kit.themeToggle(() => {}, themeSlot.current) }, [])
-  useEffect(() => {
-    const t = setInterval(() => setNow(clock()), 1000)
-    return () => clearInterval(t)
-  }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
@@ -71,6 +74,70 @@ export default function App() {
     t: clock(), pid: 'PID_' + (1000 + Math.floor(Math.random() * 9000)),
     act, cd: hex(Math.floor(Math.random() * 0xFFFFF)), lv, issueId,
   }, ...ls].slice(0, 42))
+
+  const fireAuto = () => {
+    const movable = items.filter((i: Item) => i.icon && (i.st === 'rack' || i.st === 'out') && !i.pending).length
+    if (movable <= 3) {
+      const held = items.find((i: Item) => i.st === 'hold' && i.cls !== 'ooa')
+      if (held) {
+        held.st = 'rack'; held.cust = null
+        addLog('HOLD_CLEAR · ' + held.slot + ' · supervisor sign-off · auto', 'ok')
+        saveState()
+      }
+    }
+    const trackable = items.filter((i: Item) => i.icon)
+    let it: Item | null = null
+    for (let n = 0; n < trackable.length; n++) {
+      const cand = trackable[cycIdx.current % trackable.length]; cycIdx.current++
+      if ((cand.st === 'rack' || cand.st === 'out') && !cand.pending) { it = cand; break }
+    }
+    if (!it) { addLog('CYCLE_SKIP · no movable items', 'warn'); return }
+    const dir: 'OUT' | 'IN' = it.st === 'out' ? 'IN' : 'OUT'
+    const by = OPS[Math.floor(Math.random() * OPS.length)]
+    const rq = newReq(it, dir, by, true) as Req
+    rq.t0 = Date.now()
+    requests.unshift(rq); if (requests.length > 12) requests.pop()
+    it.st = 'check'
+    addLog('REQ_CREATE · ' + rq.id + ' · ' + it.slot + ' ' + dir + ' · auto', 'ok')
+    Kit.toast('AUTO_CYCLE · ' + rq.id + ' · ' + dir + ' ' + it.name)
+  }
+
+  const progressAuto = () => {
+    for (const r of requests as Req[]) {
+      if (!r.auto || r.st === 'Logged' || !r.t0) continue
+      const age = (Date.now() - r.t0) / 1000
+      if (r.st === 'Requested' && age >= 2) r.st = 'AI Check'
+      else if (r.st === 'AI Check' && age >= 7) {
+        const it = items.find((i: Item) => i.id === r.itemId)
+        if (!it) continue
+        const ai = proposeClass() as ScanResult
+        r.ai = ai; r.st = 'Logged'
+        applyStaffClass(it, ai.cls, ai.tags, ai.note, 'ai-confirmed')
+        if (it.st !== 'hold') applyMove(it, r.dir, r.by, ai.cls)
+        addLog('AI_PROPOSE · ' + it.slot + ' · ' + CLS_SHORT[ai.cls] + ' · auto-signed ' + STAFF, ai.cls === 'good' ? 'ok' : 'warn')
+      }
+    }
+  }
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNow(clock())
+      if (cycleRef.current && !scanRef.current) {
+        nextRef.current--
+        if (nextRef.current <= 0) { fireAuto(); nextRef.current = CYCLE_S }
+      }
+      progressAuto()
+      redraw()
+    }, 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const toggleCycle = () => {
+    cycleRef.current = !cycleRef.current
+    setCycleOn(cycleRef.current)
+    if (cycleRef.current) nextRef.current = CYCLE_S
+    addLog(cycleRef.current ? 'AUTO_CYCLE · resumed' : 'AUTO_CYCLE · paused', cycleRef.current ? 'ok' : 'warn')
+  }
 
   const openScan = (it: Item, dir: 'OUT' | 'IN') => {
     if (it.st === 'hold' || it.pending) return
@@ -178,9 +245,9 @@ export default function App() {
 
   const vrows = [
     { l: 'Items in rack', v: `${VITALS.inRack()}/${track.length}`, pc: VITALS.inRack() / track.length * 100, den: `= ${VITALS.inRack()} racked / ${track.length} tracked items`, warn: false },
-    { l: 'Out now', v: `${counts.out}/${track.length}`, pc: counts.out / track.length * 100, den: `= ${counts.due} due back today`, warn: counts.due > 0 },
-    { l: 'Due today', v: String(counts.due), pc: counts.due / Math.max(1, counts.out) * 100, den: `= ${counts.out} currently signed out`, warn: false },
-    { l: 'Flagged / OOA', v: `${counts.flagged} / ${counts.ooa}`, pc: counts.flagged * 18 + counts.ooa * 24, den: `= ${counts.good} Good · ${counts.stale} photo stale`, warn: counts.flagged + counts.ooa > 0 },
+    { l: 'Deployed right now', v: `${counts.out}/${track.length}`, pc: counts.out / track.length * 100, den: `= ${VITALS.outsToday} deploys vs ${VITALS.insToday} retrieves today`, warn: false },
+    { l: 'Good class rate', v: `${(counts.good / Math.max(1, track.length) * 100).toFixed(1)}%`, pc: counts.good / Math.max(1, track.length) * 100, den: `= ${counts.good} Good / ${track.length} tracked · ${counts.due} due today`, warn: false },
+    { l: 'Flagged / OOA', v: `${counts.flagged} / ${counts.ooa}`, pc: counts.flagged * 18 + counts.ooa * 24, den: `= ${counts.stale} photo stale`, warn: counts.flagged + counts.ooa > 0 },
   ]
 
   let list = (requests as Req[]).filter(r => {
@@ -221,32 +288,33 @@ export default function App() {
         <div className="topbar">
           <div className="ascii">
             <div className="lg">SENTINEL<em>▮</em>ARMORY</div>
-            <div className="sub">QM DESK · VAULT B · CAGE 3</div>
+            <div className="sub">KIT &amp; FIREARM INVENTORY OPS · AI CHECK DEMO</div>
           </div>
-          <label className="scanbar">
-            <span>Scan</span>
-            <input ref={qRef} type="search" autoComplete="off" spellCheck={false}
-                   placeholder="Serial or last-4"
-                   value={q}
-                   onChange={e => setQ(e.target.value)}
-                   onKeyDown={e => { if (e.key === 'Enter') submitScan() }} />
-          </label>
           <div className="spacer" />
           <div className="btns">
+            <label className="scanbar">
+              <span>Scan</span>
+              <input ref={qRef} type="search" autoComplete="off" spellCheck={false}
+                     placeholder="last-4"
+                     value={q}
+                     onChange={e => setQ(e.target.value)}
+                     onKeyDown={e => { if (e.key === 'Enter') submitScan() }} />
+            </label>
             <div className="seg viewnav">
               <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>Ops board</button>
               <button className={view === 'catalog' ? 'on' : ''} onClick={() => setView('catalog')}>Stock catalog</button>
             </div>
+            <button className={'btn' + (cycleOn ? ' primary' : '')} onClick={toggleCycle}>
+              {cycleOn ? `▮ AUTO_CYCLE ${nextRef.current}s` : '▶ AUTO_CYCLE paused'}
+            </button>
             <span id="theme-slot" ref={themeSlot} />
           </div>
         </div>
         <div className="sysline">
           <div>SESSION: <b>RACK-TERM-01</b></div>
-          <div>STAFF: <b>{STAFF}</b></div>
-          <div>OUT: <b>{counts.out}</b></div>
-          <div>DUE TODAY: <b>{counts.due}</b></div>
-          <div>FLAGGED: <b>{counts.flagged}</b></div>
-          <div>OOA: <b>{counts.ooa}</b></div>
+          <div>LOC: <b>Vault B · Cage 3</b></div>
+          <div>STATUS: <b className="st-ok">{cycleOn ? 'LIVE_TEST' : 'PAUSED'}</b></div>
+          <div>CYCLE: <b>1 req / {CYCLE_S}s · round-robin</b></div>
           <div>SYS_TIME: <b id="clock">{now}</b></div>
         </div>
       </header>
@@ -440,7 +508,7 @@ export default function App() {
           </section>
 
           <section className="cell">
-            <div className="ph"><h2>MOVEMENT &amp; CLASS MIX</h2><span className="tail">7D</span></div>
+            <div className="ph"><h2>MOVEMENT</h2><span className="tail">7D · GOOD %</span></div>
             <div className="pb" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <Chart id="c-move" className="" style={{ flex: 1, minHeight: 0 }} build={moveOpt} />
             </div>
