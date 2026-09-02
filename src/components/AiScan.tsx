@@ -54,7 +54,7 @@ export default function AiScan({ item, dir, onDone }: Props) {
 
   return (
     <>
-      <div className="veil on" onClick={() => onDone(null)} />
+      <div className="veil on scan-veil" onClick={() => onDone(null)} />
       <div className="modal scan on">
         <h3>{dir === 'OUT' ? 'Take-out' : 'Return'} check · {item.id}</h3>
         <div className="scan-meta">
