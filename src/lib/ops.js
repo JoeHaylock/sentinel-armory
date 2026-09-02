@@ -437,7 +437,7 @@ export function saveState() {
         moves: i.moves, pending: i.pending,
       })),
       vitals: { outsToday: VITALS.outsToday, insToday: VITALS.insToday, aiPass: VITALS.aiPass, aiFlag: VITALS.aiFlag },
-      issues, rqN,
+      issues, requests: requests.slice(0, 12), rqN,
     }));
   } catch { /* storage unavailable */ }
 }
@@ -452,6 +452,7 @@ export function loadState() {
     }
     if (s.vitals) Object.assign(VITALS, s.vitals);
     if (Array.isArray(s.issues)) { issues.length = 0; s.issues.forEach(x => issues.push(x)); }
+    if (Array.isArray(s.requests) && s.requests.length) { requests.length = 0; s.requests.forEach(x => requests.push(x)); }
     if (s.rqN) rqN = s.rqN;
   } catch { /* corrupt store */ }
 }
@@ -548,6 +549,41 @@ export function applyMove(it, dir, by, cls) {
   rq.st = 'Logged'; rq.t = hhmm(daysAgoAt(2, 16, 4));
   rq.ai = { cls: 'ooa', tags: ['tear / hole'], serial: seedIt.serial, note: 'Tear at lower hem.', shots: 2 };
   requests.unshift(rq);
+}
+
+/* seed movement queue from latest item moves so the board is dense */
+{
+  const seen = new Set(requests.map(r => r.itemId + r.dir + r.st));
+  const extra = [];
+  for (const it of items) {
+    const mv = (it.moves || []).slice(-1)[0];
+    if (!mv) continue;
+    const k = it.id + mv.dir + 'Logged';
+    if (seen.has(k)) continue;
+    extra.push({ it, mv });
+  }
+  extra.reverse();
+  for (const { it, mv } of extra) {
+    const rq = newReq(it, mv.dir, mv.by, true);
+    rq.st = 'Logged';
+    rq.t = hhmm(mv.t);
+    rq.ai = { cls: mv.cls || it.cls, tags: it.flags || [], serial: it.serial, note: mv.note || '', shots: 2 };
+    requests.unshift(rq);
+  }
+  /* two in-flight so the pipe is not a graveyard */
+  const inflight = items.find(i => i.st === 'rack' && i.cls === 'good' && i.icon);
+  if (inflight) {
+    const a = newReq(inflight, 'OUT', OPS[1], true);
+    a.st = 'Requested';
+    requests.unshift(a);
+  }
+  const inflight2 = items.find(i => i.st === 'out' && i.cls === 'good');
+  if (inflight2) {
+    const b = newReq(inflight2, 'IN', inflight2.cust || OPS[0], true);
+    b.st = 'AI Check';
+    requests.unshift(b);
+  }
+  while (requests.length > 12) requests.pop();
 }
 
 const ACTS = [['RETURN_IN', 'ok'], ['TAKE_OUT', 'ok'], ['STAFF_OK', 'ok'], ['SLOT_SYNC', 'ok'],

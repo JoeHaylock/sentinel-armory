@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Kit from './lib/kit.js'
 import {
-  CATS, CLS_SHORT, OPS, SEED_LOG, STAFF, ST_LBL, VITALS, asset, hhmm, hex,
-  isDueToday, isOverdue, isStale, items, issues, lastNote, loadState,
+  CATS, CLS_SHORT, OPS, SEED_LOG, STAFF, STAGES, ST_LBL, VITALS, asset, blocks, hex,
+  isDueToday, isStale, items, issues, lastNote, loadState,
   newIssue, newReq, readiness, requests, saveState, applyMove, applyStaffClass,
 } from './lib/ops.js'
+import Chart from './components/Chart'
 import AiScan, { ScanResult, ScanTarget } from './components/AiScan'
 import Catalog from './components/Catalog'
 import IssueDetail from './components/IssueDetail'
@@ -21,6 +22,10 @@ interface Item {
   moves: { t: string; dir: 'OUT' | 'IN'; by: string; signed: string; photo: { src: string; kind: string; at: string } | null; note: string; cls: Cls }[]
   pending: { cls: Cls; tags: string[]; note: string; dir: 'OUT' | 'IN'; at: string; shots?: number; apply?: boolean } | null
 }
+interface Req {
+  id: string; itemId: string; slot: string; name: string; dir: 'OUT' | 'IN'
+  by: string; st: string; auto: boolean; t: string; ai: ScanResult | null
+}
 interface Issue {
   id: string; itemId: string; slot: string; name: string; icon: string | null
   type: string; loc: string; sev: string; cls: Cls; tags: string[]; note: string
@@ -34,6 +39,7 @@ loadState()
 
 export default function App() {
   const [sel, setSel] = useState<Item | null>(null)
+  const [pipeSel, setPipeSel] = useState<string | null>(null)
   const [logs, setLogs] = useState<Row[]>(SEED_LOG)
   const [now, setNow] = useState(clock)
   const [scan, setScan] = useState<{ item: Item; dir: 'OUT' | 'IN'; by: string } | null>(null)
@@ -43,7 +49,7 @@ export default function App() {
   const [, force] = useState(0)
   const redraw = () => force(n => n + 1)
   const themeSlot = useRef<HTMLSpanElement>(null)
-  const scanRef = useRef<HTMLInputElement>(null)
+  const qRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { Kit.themeToggle(() => {}, themeSlot.current) }, [])
   useEffect(() => {
@@ -53,7 +59,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
-        e.preventDefault(); scanRef.current?.focus()
+        e.preventDefault(); qRef.current?.focus()
       }
       if (e.key === 'Escape') setSel(null)
     }
@@ -76,7 +82,7 @@ export default function App() {
     if (!scan) return
     const it = items.find((i: Item) => i.id === scan.item.id)!
     if (r) {
-      const rq: { ai: ScanResult | null; st: string } = newReq(it, scan.dir, scan.by, false)
+      const rq = newReq(it, scan.dir, scan.by, false) as Req
       rq.ai = r; rq.st = 'Logged'
       requests.unshift(rq); if (requests.length > 12) requests.pop()
       it.pending = { cls: r.cls, tags: r.tags, note: r.note, dir: scan.dir, at: new Date().toISOString(), shots: r.shots, apply: true }
@@ -141,65 +147,111 @@ export default function App() {
     if (iss) setIssueSel(iss)
   }
 
+  const pickItem = (it: Item | null) => {
+    if (!it || !it.icon) { setSel(null); return }
+    setSel(it)
+  }
+
   const needle = q.trim().toLowerCase()
   const match = (it: Item) => {
     if (!needle) return true
     const serial = String(it.serial).toLowerCase()
-    const last = serial.slice(-4)
-    return serial.includes(needle) || last.includes(needle) || it.name.toLowerCase().includes(needle)
-      || it.id.toLowerCase().includes(needle) || it.slot.toLowerCase().includes(needle)
-      || (it.cust || '').toLowerCase().includes(needle)
+    return serial.includes(needle) || serial.slice(-4).includes(needle)
+      || it.name.toLowerCase().includes(needle) || it.id.toLowerCase().includes(needle)
+      || it.slot.toLowerCase().includes(needle) || (it.cust || '').toLowerCase().includes(needle)
   }
-  const tracked = items.filter((i: Item) => i.icon) as Item[]
-  const shown = tracked.filter(match)
+  const submitScan = () => {
+    const hits = (items as Item[]).filter(i => i.icon && match(i))
+    if (hits.length === 1) pickItem(hits[0])
+    else if (hits.length > 1) pickItem(hits[0])
+  }
 
-  const cols = useMemo(() => ({
-    out: shown.filter(i => i.st === 'out'),
-    due: shown.filter(i => i.st === 'out' && isDueToday(i.dueAt)),
-    flagged: shown.filter(i => i.cls === 'flagged'),
-    ooa: shown.filter(i => i.cls === 'ooa'),
-  }), [shown, now]) // now so overdue labels tick
-
+  const track = (items as Item[]).filter(i => i.icon)
   const counts = {
-    out: tracked.filter(i => i.st === 'out').length,
-    due: tracked.filter(i => i.st === 'out' && isDueToday(i.dueAt)).length,
-    flagged: tracked.filter(i => i.cls === 'flagged').length,
-    ooa: tracked.filter(i => i.cls === 'ooa').length,
+    out: track.filter(i => i.st === 'out').length,
+    due: track.filter(i => i.st === 'out' && isDueToday(i.dueAt)).length,
+    flagged: track.filter(i => i.cls === 'flagged').length,
+    ooa: track.filter(i => i.cls === 'ooa').length,
+    good: track.filter(i => i.cls === 'good').length,
+    stale: track.filter(i => isStale(i.photoAt)).length,
   }
+
+  const vrows = [
+    { l: 'Items in rack', v: `${VITALS.inRack()}/${track.length}`, pc: VITALS.inRack() / track.length * 100, den: `= ${VITALS.inRack()} racked / ${track.length} tracked items`, warn: false },
+    { l: 'Out now', v: `${counts.out}/${track.length}`, pc: counts.out / track.length * 100, den: `= ${counts.due} due back today`, warn: counts.due > 0 },
+    { l: 'Due today', v: String(counts.due), pc: counts.due / Math.max(1, counts.out) * 100, den: `= ${counts.out} currently signed out`, warn: false },
+    { l: 'Flagged / OOA', v: `${counts.flagged} / ${counts.ooa}`, pc: counts.flagged * 18 + counts.ooa * 24, den: `= ${counts.good} Good · ${counts.stale} photo stale`, warn: counts.flagged + counts.ooa > 0 },
+  ]
+
+  let list = (requests as Req[]).filter(r => {
+    if (pipeSel === 'FLAGGED') return r.ai?.cls === 'flagged' || r.ai?.cls === 'ooa'
+    return !pipeSel || r.st === pipeSel
+  })
+  if (needle) {
+    list = list.filter(r => {
+      const it = (items as Item[]).find(i => i.id === r.itemId)
+      return it ? match(it) : r.name.toLowerCase().includes(needle)
+    })
+  }
+
+  const moveOpt = () => {
+    const r = Kit.rng(77)
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Today']
+    const outs = days.map((_, i) => i === 6 ? VITALS.outsToday : Math.round(9 + r() * 12))
+    const ins = days.map((_, i) => i === 6 ? VITALS.insToday : Math.round(8 + r() * 11))
+    const goodRate = counts.good / Math.max(1, track.length) * 100
+    return {
+      legend: { show: true, top: 0, right: 6, icon: 'rect', itemWidth: 9, itemHeight: 2, textStyle: { color: Kit.css('muted'), fontSize: 9.5, fontFamily: Kit.css('mono') } },
+      xAxis: Kit.axis('category', { data: days }),
+      yAxis: [Kit.axis('value'), { ...Kit.axis('value', { min: 50, max: 100, axisLabel: { formatter: (v: number) => v + '%' } }), splitLine: { show: false } }],
+      series: [
+        { name: 'Deploys OUT', type: 'bar', data: outs, barWidth: '26%', itemStyle: { color: Kit.css('accent'), opacity: .75 } },
+        { name: 'Retrieves IN', type: 'bar', data: ins, barWidth: '26%', itemStyle: { color: Kit.css('s3'), opacity: .5 } },
+        { name: 'Good class', type: 'line', yAxisIndex: 1, data: days.map((_, i) => i === 6 ? +goodRate.toFixed(1) : +(78 + r() * 16).toFixed(1)),
+          symbolSize: 4, lineStyle: { width: 1.6, color: Kit.css('pos') }, itemStyle: { color: Kit.css('pos') } },
+      ],
+    }
+  }
+
+  const clsOf = (t: Req) => t.ai?.cls || ((items as Item[]).find(i => i.id === t.itemId)?.cls ?? 'good')
 
   return (
     <>
       <header>
         <div className="topbar">
           <div className="ascii">
-            <div className="lg">Sentinel Armory</div>
-            <div className="sub">QM desk · Vault B · Cage 3</div>
+            <div className="lg">SENTINEL<em>▮</em>ARMORY</div>
+            <div className="sub">QM DESK · VAULT B · CAGE 3</div>
           </div>
           <label className="scanbar">
             <span>Scan</span>
-            <input ref={scanRef} type="search" autoComplete="off" spellCheck={false}
+            <input ref={qRef} type="search" autoComplete="off" spellCheck={false}
                    placeholder="Serial or last-4"
-                   value={q} onChange={e => setQ(e.target.value)} />
+                   value={q}
+                   onChange={e => setQ(e.target.value)}
+                   onKeyDown={e => { if (e.key === 'Enter') submitScan() }} />
           </label>
           <div className="spacer" />
           <div className="btns">
             <div className="seg viewnav">
-              <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>Board</button>
-              <button className={view === 'catalog' ? 'on' : ''} onClick={() => setView('catalog')}>Stock</button>
+              <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>Ops board</button>
+              <button className={view === 'catalog' ? 'on' : ''} onClick={() => setView('catalog')}>Stock catalog</button>
             </div>
             <span id="theme-slot" ref={themeSlot} />
           </div>
         </div>
         <div className="sysline">
-          <div>SESSION <b>RACK-TERM-01</b></div>
-          <div>STAFF <b>{STAFF}</b></div>
-          <div>OUT <b>{counts.out}</b></div>
-          <div>DUE TODAY <b>{counts.due}</b></div>
-          <div>FLAGGED <b>{counts.flagged}</b></div>
-          <div>OOA <b>{counts.ooa}</b></div>
-          <div>TIME <b id="clock">{now}</b></div>
+          <div>SESSION: <b>RACK-TERM-01</b></div>
+          <div>STAFF: <b>{STAFF}</b></div>
+          <div>OUT: <b>{counts.out}</b></div>
+          <div>DUE TODAY: <b>{counts.due}</b></div>
+          <div>FLAGGED: <b>{counts.flagged}</b></div>
+          <div>OOA: <b>{counts.ooa}</b></div>
+          <div>SYS_TIME: <b id="clock">{now}</b></div>
         </div>
       </header>
+
+      <div className="halftone" />
 
       {view === 'catalog' ? (
         <div className="app catalogwrap">
@@ -207,47 +259,197 @@ export default function App() {
                    onAction={openScan as never}
                    onClearHold={((it: Item) => { it.st = 'rack'; it.cust = null; saveState(); redraw() }) as never}
                    onOpenIssue={openIssue}
-                   onOpenItem={((it: Item) => { setView('ops'); setSel(it) }) as never} />
+                   onOpenItem={((it: Item) => { setView('ops'); pickItem(it) }) as never} />
         </div>
       ) : (
-      <div className="app board-app">
-        <div className="board">
-          <BoardCol title="Out now" n={needle ? cols.out.length : counts.out} items={cols.out} sel={sel} onPick={setSel} kind="out" />
-          <BoardCol title="Due today" n={needle ? cols.due.length : counts.due} items={cols.due} sel={sel} onPick={setSel} kind="due" />
-          <BoardCol title="Flagged" n={needle ? cols.flagged.length : counts.flagged} items={cols.flagged} sel={sel} onPick={setSel} kind="flagged" />
-          <BoardCol title="OOA" n={needle ? cols.ooa.length : counts.ooa} items={cols.ooa} sel={sel} onPick={setSel} kind="ooa" />
-        </div>
-        <aside className="side">
-          <section className="cell cctv-cell">
-            <div className="ph"><h2>Cage 3</h2><span className="tail">CAM 03</span></div>
-            <div className="cctv-wrap">
-              <img className="cctv-still" src={asset('cage-cctv-still.png')} alt="CCTV still, Vault B cage 3" />
-              <video src={asset('cage-cctv.mp4')} autoPlay muted loop playsInline
-                     onError={e => { (e.target as HTMLVideoElement).style.display = 'none' }} />
-              <div className="cctv-osd">
-                <span>CAM 03</span>
-                <span>{now}</span>
+      <div className="app">
+        <div className="row r1">
+          <section className="cell">
+            <div className="ph"><h2>CORE VITALS · INVENTORY</h2><span className="tail">[ARM] TODAY</span></div>
+            <div className="pb" id="vitals">
+              {vrows.map(r => (
+                <div className={'vrow' + (r.warn ? ' warn' : '')} key={r.l}>
+                  <div className="t"><span>{r.l}</span><span className="dots" /><b>{r.v}</b></div>
+                  <div className="blocks" dangerouslySetInnerHTML={{ __html: blocks(r.pc) }} />
+                  <div className="den">{r.den}</div>
+                </div>
+              ))}
+              <div className="legend">
+                <div className="lg-t">NAMING MATRIX</div>
+                <div><b>S-xx</b> rack slot — a physical position in the cage</div>
+                <div><b>ARM-1xx</b> asset record — one tracked item &amp; its serial</div>
+                <div><b>RQ-xxxx</b> movement request — one deploy / retrieve</div>
+              </div>
+              <div className="den" style={{ marginTop: 8 }}>
+                Classes only: Good · Flagged · OOA. AI proposes; staff confirm. State persists in this browser.
               </div>
             </div>
           </section>
-          <section className="cell log-cell">
-            <div className="ph"><h2>Log</h2></div>
+
+          <section className="cell">
+            <div className="ph"><h2>CAGE CCTV · CAM 03</h2><span className="tail"><span className="rec-inline">● REC</span> VAULT B</span></div>
+            <div className="cctv-wrap">
+              <img className="cctv-still" src={asset('cage-cctv-still.png')} alt="CCTV still — Vault B cage 3" />
+              <video src={asset('cage-cctv.mp4')} autoPlay muted loop playsInline
+                     onError={e => { (e.target as HTMLVideoElement).style.display = 'none' }} />
+              <div className="cctv-osd">
+                <span>CAM 03 · VAULT B · CAGE 3</span>
+                <span>{now}</span>
+              </div>
+              <div className="cctv-scan" />
+              <span className="radar-note">CAM 03 · LIVE STILL</span>
+            </div>
+          </section>
+
+          <section className="cell">
+            <div className="ph"><h2>TRANSACTION LOG</h2><span className="tail">{STAFF}</span></div>
             <div className="pb"><div className="log" id="log">
-              {logs.slice(0, 14).map((r, i) => (
+              {logs.map((r, i) => (
                 <div className={'lr' + (r.lv === 'warn' ? ' warn' : '') + (r.issueId ? ' clickable' : '')}
                      key={r.cd + i}
+                     title={r.issueId ? 'Open issue record ' + r.issueId : undefined}
                      onClick={() => openIssue(r.issueId)}>
                   <time>{r.t}</time>
-                  <span className="act">{r.act}</span>
+                  <span className="pid">{r.pid}</span>
+                  <span className="act">{r.act}</span><span className="cd">{r.cd}</span>
                 </div>
               ))}
             </div></div>
           </section>
-        </aside>
+        </div>
+
+        <div className="row r2">
+          <section className="cell">
+            <div className="ph"><h2>RACK MATRIX · LIVE CAGE MAP</h2><span className="tail">16 SLOTS · CLICK TO OPEN</span></div>
+            <div className="pb rack-pb">
+              <div className="rackgrid">
+                {(items as Item[]).map(d => {
+                  const stale = isStale(d.photoAt)
+                  const rdy = readiness(d)
+                  const hit = !needle || match(d)
+                  return (
+                    <div key={d.slot}
+                         className={`slot ${d.st} cls-${d.cls}` + (d === sel ? ' sel' : '') + (stale ? ' stale' : '') + (hit ? '' : ' dim')}
+                         title={`${d.slot} · ${d.name} · ${ST_LBL[d.st as keyof typeof ST_LBL]} · ${CLS_SHORT[d.cls]}${stale ? ' · photo stale' : ''}`}
+                         onClick={() => pickItem(d)}>
+                      {d.icon ? <img src={asset('icons/' + d.icon + '.png')} alt={d.name} /> : <span className="empty-dash">·</span>}
+                      <i /><span className="n">{d.slot}</span>
+                      {rdy === 'stale' ? <span className="slot-rdy rdy-stale" /> : null}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="racklegend">
+                <span><i className="sw rack" />In rack</span>
+                <span><i className="sw out" />Out</span>
+                <span><i className="sw check" />Check</span>
+                <span><i className="sw hold" />Hold / OOA</span>
+                <span><i className="sw empty" />Empty</span>
+              </div>
+              <div className="devstat">
+                {!sel ? 'Click a slot or queue row to open the item file.'
+                  : sel.st === 'empty' ? <><span className="clr" onClick={() => setSel(null)}>Clear selection ×</span>
+                      <b>{sel.slot}</b> · unassigned — no item racked here.</>
+                  : <>
+                    <span className="clr" onClick={() => setSel(null)}>Clear selection ×</span>
+                    <div className="itemline">
+                      {sel.icon && <img src={asset('icons/' + sel.icon + '.png')} alt={sel.name} />}
+                      <div>
+                        <b>{sel.id}</b>{` · ${sel.name} · `}<b>{ST_LBL[sel.st as keyof typeof ST_LBL]}</b><br />
+                        {`${sel.type} · SN ${sel.serial} · `}
+                        <span className={'cls-chip cls-' + sel.cls + (isStale(sel.photoAt) ? ' stale' : '')}>
+                          {isStale(sel.photoAt) ? 'Photo stale' : CLS_SHORT[sel.cls]}
+                        </span>
+                        {` · Svc ${Kit.fmt(sel.svc)} h · Last check ${sel.lastChk}`}<br />
+                        {sel.st === 'out' ? <>Signed to <b>{sel.cust}</b></> : sel.st === 'hold' ? <b style={{ color: 'var(--neg)' }}>Held · OOA</b> : 'No current custodian'}
+                        {(() => {
+                          const h = (issues as Issue[]).filter(x => x.itemId === sel.id)
+                          return h.length ? <> · <span className="issuelink" onClick={e => { e.stopPropagation(); openIssue(h[0].id) }}>
+                            {h.length} record{h.length > 1 ? 's' : ''} on file ▸</span></> : null
+                        })()}
+                      </div>
+                    </div>
+                    <div className="acts" style={{ marginTop: 7 }}>
+                      {sel.st === 'rack' && !sel.pending && <button onClick={() => openScan(sel, 'OUT')}>Take out → check</button>}
+                      {sel.st === 'out' && !sel.pending && <button onClick={() => openScan(sel, 'IN')}>Return → check</button>}
+                      {sel.st === 'hold' && <button className="done" onClick={() => {
+                        sel.st = 'rack'; sel.cust = null; saveState(); redraw()
+                      }}>Clear hold → rack</button>}
+                      {sel.pending && <span style={{ color: 'var(--warn)' }}>AI proposal waiting in the item file</span>}
+                    </div>
+                  </>}
+              </div>
+            </div>
+          </section>
+
+          <section className="cell">
+            <div className="ph"><h2>MOVEMENT QUEUE</h2>
+              <span className="tail">{`${(requests as Req[]).filter(r => r.st !== 'Logged').length} in flight`}</span></div>
+            <div className="pb">
+              <div className="den" style={{ marginBottom: 8 }}>
+                One RQ per take-out / return — slot · asset · time · requester · class. Click a row to open the item file.
+              </div>
+              <div className="pipe">
+                {STAGES.map((s: string) => (
+                  <div key={s} className={pipeSel === s ? 'on' : ''}
+                       onClick={() => setPipeSel(p => p === s ? null : s)}>
+                    <div className="n">{(requests as Req[]).filter(r => r.st === s).length}</div>
+                    <div className="l">{s}</div>
+                  </div>
+                ))}
+                <div className={pipeSel === 'FLAGGED' ? 'on' : ''}
+                     onClick={() => setPipeSel(p => p === 'FLAGGED' ? null : 'FLAGGED')}>
+                  <div className="n">{(requests as Req[]).filter(r => r.ai?.cls === 'flagged' || r.ai?.cls === 'ooa').length}</div>
+                  <div className="l">Flagged</div>
+                </div>
+              </div>
+              <div>
+                {!list.length ? <div className="tk"><div className="m">No movement requests match this filter.</div></div>
+                  : list.map(t => {
+                    const it = (items as Item[]).find(i => i.id === t.itemId)
+                    const cls = clsOf(t)
+                    const iss = (cls === 'flagged' || cls === 'ooa')
+                      ? (issues as Issue[]).find(x => x.itemId === t.itemId)
+                      : null
+                    return (
+                    <div className={'tk' + (cls !== 'good' ? ' over flagged' : '')}
+                         key={t.id}
+                         title="Open item file"
+                         onClick={() => it && pickItem(it)}>
+                      <div className="t">
+                        <span className="id">{t.id}</span>
+                        <span className={'dir dir-' + t.dir}>{t.dir === 'OUT' ? '▲ OUT' : '▼ IN'}</span>
+                        <span className="ti">{t.name}</span>
+                        <span className={'cls-chip cls-' + cls}>{CLS_SHORT[cls]}</span>
+                      </div>
+                      <div className="m">
+                        {`${t.slot} · ${t.itemId} · req ${t.t} · ${t.by} · ${t.auto ? 'seeded' : 'manual'} · ${t.st}`}
+                      </div>
+                      {iss && (
+                        <div className="flagbox" onClick={e => { e.stopPropagation(); setIssueSel(iss) }}>
+                          <span className="fl">⚠ {iss.id}</span>
+                          <span className="ft">{iss.type} — {iss.loc}</span>
+                          <span className="fr">REVIEW ▸</span>
+                        </div>
+                      )}
+                    </div>
+                    )
+                  })}
+              </div>
+            </div>
+          </section>
+
+          <section className="cell">
+            <div className="ph"><h2>MOVEMENT &amp; CLASS MIX</h2><span className="tail">7D</span></div>
+            <div className="pb" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <Chart id="c-move" className="" style={{ flex: 1, minHeight: 0 }} build={moveOpt} />
+            </div>
+          </section>
+        </div>
       </div>
       )}
 
-      {sel && (
+      {sel && sel.icon && (
         <ItemDrawer
           item={sel}
           onClose={() => setSel(null)}
@@ -269,49 +471,3 @@ export default function App() {
     </>
   )
 }
-
-function BoardCol({ title, n, items: rows, sel, onPick, kind }: {
-  title: string; n: number; items: Item[]; sel: Item | null; onPick: (it: Item) => void; kind: string
-}) {
-  return (
-    <section className={'col col-' + kind}>
-      <div className="col-h">
-        <h2>{title}</h2>
-        <b>{n}</b>
-      </div>
-      <div className="col-b">
-        {!rows.length && <div className="col-empty">None</div>}
-        {rows.map(it => {
-          const stale = isStale(it.photoAt)
-          const rdy = readiness(it)
-          const note = lastNote(it)
-          return (
-            <button type="button" key={it.id}
-                    className={'brow' + (sel === it ? ' on' : '') + (rdy === 'stale' ? ' stale' : '')}
-                    onClick={() => onPick(it)}>
-              <span className="brow-id">
-                {it.icon && <img src={asset('icons/' + it.icon + '.png')} alt="" />}
-                <span>
-                  <b>{it.name.replace(/^L85A3 /, '').replace(/^L131A1 /, '')}</b>
-                  <i>{it.serial}</i>
-                </span>
-              </span>
-              <span className="brow-meta">
-                {kind === 'out' || kind === 'due'
-                  ? <em>{hhmm(it.outAt)}{it.dueAt ? ' / ' + hhmm(it.dueAt) : ''}{isOverdue(it.dueAt) ? ' overdue' : ''}</em>
-                  : <em>{it.cust || 'cage'}</em>}
-                <span className={'cls-chip cls-' + it.cls + (stale ? ' stale' : '')}>
-                  {stale ? 'Photo stale' : CLS_SHORT[it.cls]}
-                </span>
-              </span>
-              {note && kind !== 'out' && <span className="brow-note">{note.text}</span>}
-            </button>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-void ST_LBL
-void VITALS
