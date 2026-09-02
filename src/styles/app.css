@@ -122,6 +122,8 @@ header .btns{display:flex;gap:8px;align-items:flex-start}
 .veil.on{opacity:1;pointer-events:auto}
 .modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%);width:430px;max-width:94vw;background:var(--bg);border:1px solid var(--ink);z-index:61;opacity:0;pointer-events:none;transition:all var(--slow);padding:18px 20px}
 .modal.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%)}
+.veil.scan-veil{z-index:80}
+.modal.scan{z-index:81;opacity:1;pointer-events:auto}
 .modal h3{font-size:13px;letter-spacing:.14em;margin-bottom:13px}
 .modal h3::before{content:"■ ";color:var(--accent)}
 .fm{display:grid;grid-template-columns:74px 1fr;gap:10px 12px;align-items:center;font-size:11.5px}
